@@ -1,0 +1,285 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoomStatus {
+  VACANT
+  OCCUPIED
+  NOTICE
+}
+
+enum TenancyStatus {
+  INVITED
+  ACTIVE
+  MOVE_OUT_SCHEDULED
+  CLOSED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  DUE
+  OVERDUE
+  PAYMENT_SUBMITTED
+  PAID
+}
+
+enum PaymentSubmissionStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum ReminderChannel {
+  IN_APP
+  WHATSAPP
+}
+
+enum ReminderKind {
+  UPCOMING
+  DUE_TODAY
+  OVERDUE_FOLLOW_UP
+}
+
+enum ReminderDeliveryStatus {
+  SCHEDULED
+  READY
+  SENT
+  FAILED
+  CANCELED
+}
+
+model Owner {
+  id         String     @id
+  name       String
+  phone      String     @unique
+  properties Property[]
+
+  @@map("owners")
+}
+
+model Property {
+  id                String              @id
+  ownerId           String
+  name              String
+  address           String
+  defaultTariff     Float
+  managerName       String
+  managerPhone      String
+  owner             Owner               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  settlementAccount SettlementAccount?
+  rooms             Room[]
+  roomMeters        RoomMeter[]
+  tenancies         Tenancy[]
+  invoices          Invoice[]
+  meterReadings     MeterReading[]
+  reminders         Reminder[]
+
+  @@map("properties")
+}
+
+model SettlementAccount {
+  id           String   @id
+  propertyId   String   @unique
+  payeeName    String
+  upiId        String
+  instructions String
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("settlement_accounts")
+}
+
+model Room {
+  id            String        @id
+  propertyId    String
+  label         String
+  floor         String
+  meterId       String        @unique
+  status        RoomStatus
+  property      Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomMeter     RoomMeter?
+  tenancies     Tenancy[]
+  invoices      Invoice[]
+  meterReadings MeterReading[]
+
+  @@unique([propertyId, label])
+  @@map("rooms")
+}
+
+model RoomMeter {
+  id           String         @id
+  propertyId   String
+  roomId       String         @unique
+  serialNumber String
+  lastReading  Float
+  property     Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  room         Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  meterReadings MeterReading[]
+
+  @@unique([propertyId, serialNumber])
+  @@map("room_meters")
+}
+
+model Tenant {
+  id                String              @id
+  phone             String              @unique
+  fullName          String
+  email             String
+  emergencyContact  String
+  idDocument        String
+  notes             String
+  profileStatus     String
+  tenancies         Tenancy[]
+  invoices          Invoice[]
+  paymentSubmissions PaymentSubmission[]
+  reminders         Reminder[]
+
+  @@map("tenants")
+}
+
+model Contract {
+  id            String  @id
+  tenancyId     String  @unique
+  fileName      String
+  rentAmount    Float
+  depositAmount Float
+  dueDay        Int
+  moveInDate    String
+  contractStart String
+  contractEnd   String
+  createdAt     String
+  tenancy       Tenancy @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+
+  @@map("contracts")
+}
+
+model Tenancy {
+  id            String         @id
+  propertyId    String
+  roomId        String
+  tenantId      String
+  status        TenancyStatus
+  contractId    String?        @unique
+  rentAmount    Float?
+  depositAmount Float?
+  dueDay        Int?
+  moveInDate    String?
+  contractStart String?
+  contractEnd   String?
+  moveOutDate   String?
+  property      Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  room          Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract      Contract?
+  invoices      Invoice[]
+
+  @@index([propertyId, status])
+  @@index([roomId, status])
+  @@map("tenancies")
+}
+
+model Invoice {
+  id                 String        @id
+  propertyId         String
+  tenancyId          String
+  tenantId           String
+  roomId             String
+  month              String
+  billingPeriodStart String
+  billingPeriodEnd   String
+  dueDate            String
+  status             InvoiceStatus
+  baseRent           Float
+  electricityCharge  Float
+  totalAmount        Float
+  lineItems          Json
+  readingSnapshot    Json
+  settlementSnapshot Json
+  paymentLink        String
+  generatedAt        String
+  paymentSubmissionId String?      @unique
+  paidAt             String?
+  property           Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenancy            Tenancy       @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+  tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  room               Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  paymentSubmissions PaymentSubmission[]
+  reminders          Reminder[]
+
+  @@unique([tenancyId, month])
+  @@index([tenantId, month])
+  @@index([status, dueDate])
+  @@map("invoices")
+}
+
+model MeterReading {
+  id             String    @id
+  propertyId     String
+  roomId         String
+  meterId        String
+  month          String
+  openingReading Float
+  closingReading Float
+  tariff         Float
+  capturedAt     String
+  property       Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  room           Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  meter          RoomMeter @relation(fields: [meterId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, month])
+  @@map("meter_readings")
+}
+
+model PaymentSubmission {
+  id              String                  @id
+  invoiceId       String
+  tenantId        String
+  status          PaymentSubmissionStatus
+  utr             String
+  screenshotLabel String
+  note            String
+  submittedAt     String
+  reviewedAt      String?
+  reviewerNote    String                  @default("")
+  invoice         Invoice                 @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, status])
+  @@map("payment_submissions")
+}
+
+model Reminder {
+  id             String                 @id
+  propertyId     String
+  invoiceId      String
+  tenantId       String
+  channel        ReminderChannel
+  kind           ReminderKind
+  title          String
+  triggerDate    String
+  deliveryStatus ReminderDeliveryStatus
+  lastAttemptAt  String?
+  note           String
+  property       Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  invoice        Invoice                @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, triggerDate])
+  @@index([tenantId, triggerDate])
+  @@map("reminders")
+}
+
+model AuditTrail {
+  id        String @id
+  title     String
+  detail    String
+  createdAt String
+
+  @@index([createdAt])
+  @@map("audit_trail")
+}
