@@ -77,9 +77,10 @@ export function TenantWorkspace({ state, actions, onLogout }) {
     });
   }, [tenant]);
 
-  const handleAction = (callback, successMessage) => {
+  const handleAction = async (callback, successMessage) => {
     try {
-      callback();
+      setFeedback(null);
+      await callback();
       setFeedback({ tone: 'success', text: successMessage });
     } catch (error) {
       setFeedback({ tone: 'danger', text: error.message });
@@ -209,8 +210,8 @@ export function TenantWorkspace({ state, actions, onLogout }) {
                 label="Submit payment proof"
                 onPress={() =>
                   handleAction(
-                    () => {
-                      actions.submitPayment({ invoiceId: currentInvoice.id, ...paymentForm });
+                    async () => {
+                      await actions.submitPayment({ invoiceId: currentInvoice.id, ...paymentForm });
                       setPaymentForm({ utr: '', screenshotLabel: '', note: '' });
                     },
                     'Payment proof submitted for owner review.',
@@ -289,6 +290,8 @@ export function TenantWorkspace({ state, actions, onLogout }) {
         actionLabel="Log out"
         onAction={onLogout}
       />
+      {state.isSyncing ? <Banner tone="info" message="Syncing your tenant portal with the backend..." /> : null}
+      {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
       {feedback ? <Banner tone={feedback.tone} message={feedback.text} /> : null}
       <TabStrip tabs={tenantTabs} activeTab={activeTab} onChange={setActiveTab} />
       {renderCurrentTab()}

@@ -11,7 +11,7 @@ import {
   SectionCard,
 } from '../components/ui';
 
-export function AuthScreen({ onLogin }) {
+export function AuthScreen({ onLogin, isBusy = false, backendError = null }) {
   const [role, setRole] = useState('owner');
   const [phone, setPhone] = useState('9000000000');
   const [otp, setOtp] = useState('123456');
@@ -36,14 +36,14 @@ export function AuthScreen({ onLogin }) {
     });
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (otp !== '123456') {
       setMessage({ tone: 'danger', text: 'Use OTP 123456 in this demo app.' });
       return;
     }
 
     try {
-      onLogin(role, phone);
+      await onLogin(role, phone);
       setMessage(null);
     } catch (error) {
       setMessage({ tone: 'danger', text: error.message });
@@ -56,9 +56,11 @@ export function AuthScreen({ onLogin }) {
         eyebrow="Rent automation"
         title="Owner and tenant workflows in one mobile app"
         subtitle="This seeded MVP lets you test onboarding, room setup, monthly billing, UPI collection, payment proof review, reminders, and move-out from a single codebase."
-      />
+      /> 
 
       {message ? <Banner tone={message.tone} message={message.text} /> : null}
+      {backendError ? <Banner tone="danger" message={backendError} /> : null}
+      {isBusy ? <Banner tone="info" message="Connecting to the rent backend..." /> : null}
 
       <SectionCard
         title="Choose your portal"
@@ -82,8 +84,9 @@ export function AuthScreen({ onLogin }) {
           />
         ) : null}
         <PrimaryButton
-          label={step === 'request' ? 'Send OTP' : 'Verify and enter'}
+          label={step === 'request' ? 'Send OTP' : isBusy ? 'Connecting...' : 'Verify and enter'}
           onPress={step === 'request' ? handleRequestOtp : handleLogin}
+          disabled={isBusy}
         />
         <View style={{ gap: 6 }}>
           <Text style={{ color: '#66756d', lineHeight: 20 }}>

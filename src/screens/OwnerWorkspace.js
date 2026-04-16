@@ -94,6 +94,28 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
   const vacantRooms = state.rooms.filter((room) => room.status === 'VACANT');
 
   useEffect(() => {
+    setPropertyForm({
+      name: state.property.name,
+      address: state.property.address,
+      managerName: state.property.managerName,
+      managerPhone: state.property.managerPhone,
+      defaultTariff: String(state.property.defaultTariff),
+    });
+    setBillingForm((current) => ({
+      ...current,
+      tariff: String(state.property.defaultTariff),
+    }));
+  }, [state.property]);
+
+  useEffect(() => {
+    setSettlementForm({
+      payeeName: state.settlementAccount.payeeName,
+      upiId: state.settlementAccount.upiId,
+      instructions: state.settlementAccount.instructions,
+    });
+  }, [state.settlementAccount]);
+
+  useEffect(() => {
     if (!inviteForm.roomId && vacantRooms[0]) {
       setInviteForm((current) => ({ ...current, roomId: vacantRooms[0].id }));
     }
@@ -130,9 +152,10 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
     pendingApprovals: pendingSubmissions.length,
   };
 
-  const handleAction = (callback, successMessage) => {
+  const handleAction = async (callback, successMessage) => {
     try {
-      callback();
+      setFeedback(null);
+      await callback();
       setFeedback({ tone: 'success', text: successMessage });
     } catch (error) {
       setFeedback({ tone: 'danger', text: error.message });
@@ -243,8 +266,8 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
           label="Create room"
           onPress={() =>
             handleAction(
-              () => {
-                actions.addRoom(roomForm);
+              async () => {
+                await actions.addRoom(roomForm);
                 setRoomForm({ label: '', floor: '', serialNumber: '', openingReading: '0' });
               },
               'New room and meter created.',
@@ -269,8 +292,8 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
           label="Send tenant invite"
           onPress={() =>
             handleAction(
-              () => {
-                actions.inviteTenant(inviteForm);
+              async () => {
+                await actions.inviteTenant(inviteForm);
                 setInviteForm({ fullName: '', phone: '', roomId: vacantRooms[0]?.id || '' });
               },
               'Tenant invited and room reserved for onboarding.',
@@ -478,6 +501,8 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
         actionLabel="Log out"
         onAction={onLogout}
       />
+      {state.isSyncing ? <Banner tone="info" message="Syncing the owner portal with the backend..." /> : null}
+      {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
       {feedback ? <Banner tone={feedback.tone} message={feedback.text} /> : null}
       <TabStrip tabs={ownerTabs} activeTab={activeTab} onChange={setActiveTab} />
       {renderCurrentTab()}

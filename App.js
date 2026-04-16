@@ -14,7 +14,11 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.appShell}>
         {!state.session.role ? (
-          <AuthScreen onLogin={actions.login} />
+          <AuthScreen
+            onLogin={actions.login}
+            isBusy={state.isSyncing}
+            backendError={state.backendError}
+          />
         ) : state.session.role === 'owner' ? (
           <OwnerWorkspace state={state} actions={actions} onLogout={actions.logout} />
         ) : (
