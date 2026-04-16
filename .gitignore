@@ -6,6 +6,7 @@ node_modules/
 # Expo
 .expo/
 .expo-export-android*/
+.web-preview*/
 dist/
 web-build/
 expo-env.d.ts
@@ -42,6 +43,7 @@ yarn-error.*
 
 # local tooling and native build outputs
 .tooling/
+.data/
 android/.gradle/
 android/build/
 android/app/build/
