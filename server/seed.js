@@ -36,12 +36,12 @@ async function seedDatabase(prisma) {
       data: seed.tenants,
     });
 
-    await tx.contract.createMany({
-      data: seed.contracts,
-    });
-
     await tx.tenancy.createMany({
       data: seed.tenancies,
+    });
+
+    await tx.contract.createMany({
+      data: seed.contracts,
     });
 
     await tx.invoice.createMany({
