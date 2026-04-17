@@ -2,8 +2,9 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView, StyleSheet, View } from 'react-native';
 
 import { AuthScreen } from './src/screens/AuthScreen';
-import { OwnerWorkspace } from './src/screens/OwnerWorkspace';
-import { TenantWorkspace } from './src/screens/TenantWorkspace';
+import { palette } from './src/components/uiAirbnb';
+import { OwnerWorkspaceV2 } from './src/screens/OwnerWorkspaceV2';
+import { TenantWorkspaceV2 } from './src/screens/TenantWorkspaceV2';
 import { useRentAppModel } from './src/state/useRentAppModel';
 
 export default function App() {
@@ -20,9 +21,9 @@ export default function App() {
             backendError={state.backendError}
           />
         ) : state.session.role === 'owner' ? (
-          <OwnerWorkspace state={state} actions={actions} onLogout={actions.logout} />
+          <OwnerWorkspaceV2 state={state} actions={actions} onLogout={actions.logout} />
         ) : (
-          <TenantWorkspace state={state} actions={actions} onLogout={actions.logout} />
+          <TenantWorkspaceV2 state={state} actions={actions} onLogout={actions.logout} />
         )}
       </View>
     </SafeAreaView>
@@ -32,10 +33,10 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f6efe4',
+    backgroundColor: palette.background,
   },
   appShell: {
     flex: 1,
-    backgroundColor: '#f6efe4',
+    backgroundColor: palette.background,
   },
 });
