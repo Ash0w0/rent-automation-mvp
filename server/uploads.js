@@ -3,6 +3,10 @@ const path = require('node:path');
 
 const uploadsDir = path.resolve(process.cwd(), '.data', 'uploads');
 
+function shouldInlineUploads() {
+  return process.env.UPLOAD_STORAGE_MODE === 'inline' || Boolean(process.env.VERCEL);
+}
+
 function ensureUploadsDir() {
   fs.mkdirSync(uploadsDir, { recursive: true });
   return uploadsDir;
@@ -36,6 +40,10 @@ function saveImageUpload(prefix, upload) {
   const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(upload.dataUrl);
   if (!match) {
     throw new Error('Only image uploads are supported right now.');
+  }
+
+  if (shouldInlineUploads()) {
+    return upload.dataUrl;
   }
 
   const [, mimeType, encoded] = match;

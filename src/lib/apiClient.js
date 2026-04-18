@@ -11,9 +11,13 @@ function getApiBaseUrl() {
   }
 
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
     const hostname = window.location.hostname || '127.0.0.1';
-    return `${protocol}//${hostname}:4000`;
+    if (hostname === '127.0.0.1' || hostname === 'localhost') {
+      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+      return `${protocol}//${hostname}:4000`;
+    }
+
+    return trimTrailingSlash(window.location.origin);
   }
 
   if (Platform.OS === 'android') {
