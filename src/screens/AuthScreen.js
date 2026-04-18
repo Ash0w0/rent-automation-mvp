@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import { Banner, Field, palette } from '../components/uiAirbnb';
 
-export function AuthScreen({ onLogin, isBusy = false, backendError = null }) {
+export function AuthScreen({ onLogin, isBusy = false, backendError = null, isDemoMode = false }) {
   const [role, setRole] = useState('tenant');
   const [phone, setPhone] = useState('9000000001');
   const [otp, setOtp] = useState('123456');
@@ -85,6 +85,12 @@ export function AuthScreen({ onLogin, isBusy = false, backendError = null }) {
             <Text style={styles.subtitle}>{subtitle}</Text>
 
             {message ? <Banner tone={message.tone} message={message.text} /> : null}
+            {isDemoMode ? (
+              <Banner
+                tone="info"
+                message="Public preview mode is on. Browse the product with demo logins, but edits are disabled here."
+              />
+            ) : null}
             {backendError ? <Banner tone="danger" message={backendError} /> : null}
             {isBusy ? <Banner tone="info" message="Connecting to your workspace..." /> : null}
 

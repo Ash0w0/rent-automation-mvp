@@ -19,6 +19,7 @@ export default function App() {
             onLogin={actions.login}
             isBusy={state.isSyncing}
             backendError={state.backendError}
+            isDemoMode={state.isDemoMode}
           />
         ) : state.session.role === 'owner' ? (
           <OwnerWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />

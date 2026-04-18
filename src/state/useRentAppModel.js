@@ -27,6 +27,8 @@ const emptySession = {
   currentOwnerId: null,
 };
 
+const isDemoMode = process.env.EXPO_PUBLIC_DEMO_MODE === 'true';
+
 function createInitialState() {
   return {
     ...createSeedState(),
@@ -34,6 +36,7 @@ function createInitialState() {
     isHydrating: true,
     isSyncing: false,
     backendError: null,
+    isDemoMode,
   };
 }
 
@@ -60,6 +63,16 @@ export function useRentAppModel() {
   const [state, setState] = useState(createInitialState);
 
   useEffect(() => {
+    if (isDemoMode) {
+      setState((currentState) => ({
+        ...currentState,
+        isHydrating: false,
+        isSyncing: false,
+        backendError: null,
+      }));
+      return undefined;
+    }
+
     let active = true;
 
     async function hydrateState() {
@@ -116,8 +129,61 @@ export function useRentAppModel() {
     }
   }
 
+  function runDemoLogin(role, phone) {
+    const normalizedPhone = String(phone || '').trim();
+
+    if (role === 'owner') {
+      if (normalizedPhone !== state.owner.phone) {
+        throw new Error('Use owner demo login 9000000000 for this preview.');
+      }
+
+      setState((currentState) => ({
+        ...currentState,
+        session: {
+          role: 'owner',
+          phone: normalizedPhone,
+          currentTenantId: null,
+          currentOwnerId: currentState.owner.id,
+        },
+        isHydrating: false,
+        isSyncing: false,
+        backendError: null,
+      }));
+      return Promise.resolve();
+    }
+
+    const tenant = state.tenants.find((record) => record.phone === normalizedPhone);
+    if (!tenant) {
+      throw new Error('Use tenant demo login 9000000001 or 9000000002 for this preview.');
+    }
+
+    setState((currentState) => ({
+      ...currentState,
+      session: {
+        role: 'tenant',
+        phone: normalizedPhone,
+        currentTenantId: tenant.id,
+        currentOwnerId: null,
+      },
+      isHydrating: false,
+      isSyncing: false,
+      backendError: null,
+    }));
+    return Promise.resolve();
+  }
+
+  function rejectDemoAction() {
+    return Promise.reject(
+      new Error('This public Vercel preview is read-only. Local and backend-connected builds still support editing.'),
+    );
+  }
+
   const actions = {
     login(role, phone) {
+      if (isDemoMode) {
+        return runDemoLogin(role, phone);
+      }
+
       return runServerAction(() => demoLogin(role, phone), {
         preserveSession: false,
       });
@@ -133,30 +199,45 @@ export function useRentAppModel() {
     },
 
     updateProperty(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => updateProperty(payload), {
         preserveSession: true,
       });
     },
 
     updateSettlement(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => updateSettlement(payload), {
         preserveSession: true,
       });
     },
 
     addRoom(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => addRoom(payload), {
         preserveSession: true,
       });
     },
 
     inviteTenant(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => inviteTenant(payload), {
         preserveSession: true,
       });
     },
 
     completeTenantProfile(input) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       const { tenantId, ...payload } = input;
 
       return runServerAction(() => completeTenantProfile(tenantId, payload), {
@@ -165,6 +246,9 @@ export function useRentAppModel() {
     },
 
     activateTenancy(input) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       const { tenancyId, ...payload } = input;
 
       return runServerAction(() => activateTenancy(tenancyId, payload), {
@@ -173,48 +257,72 @@ export function useRentAppModel() {
     },
 
     generateInvoice(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => generateInvoice(payload), {
         preserveSession: true,
       });
     },
 
     submitMeterReading(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => submitMeterReading(payload), {
         preserveSession: true,
       });
     },
 
     reviewMeterReading(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => reviewMeterReading(payload), {
         preserveSession: true,
       });
     },
 
     submitPayment(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => submitPayment(payload), {
         preserveSession: true,
       });
     },
 
     reviewPayment(payload) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => reviewPayment(payload), {
         preserveSession: true,
       });
     },
 
     updateReminderStatus(reminderId, deliveryStatus) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => updateReminderStatus(reminderId, deliveryStatus), {
         preserveSession: true,
       });
     },
 
     scheduleMoveOut(input) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => scheduleMoveOut(input.tenancyId, input.moveOutDate), {
         preserveSession: true,
       });
     },
 
     closeTenancy(tenancyId) {
+      if (isDemoMode) {
+        return rejectDemoAction();
+      }
       return runServerAction(() => closeTenancy(tenancyId), {
         preserveSession: true,
       });
