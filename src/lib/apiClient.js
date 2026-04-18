@@ -23,6 +23,18 @@ function getApiBaseUrl() {
   return 'http://127.0.0.1:4000';
 }
 
+function resolveUploadUrl(fileName) {
+  if (!fileName) {
+    return null;
+  }
+
+  if (/^https?:\/\//.test(fileName) || fileName.startsWith('data:')) {
+    return fileName;
+  }
+
+  return `${getApiBaseUrl()}/uploads/${fileName}`;
+}
+
 async function requestJson(path, options = {}) {
   const requestOptions = {
     method: options.method || 'GET',
@@ -105,6 +117,20 @@ function generateInvoice(payload) {
   });
 }
 
+function submitMeterReading(payload) {
+  return requestJson('/api/meter-readings/submissions', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+function reviewMeterReading(payload) {
+  return requestJson('/api/meter-readings/review', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
 function submitPayment(payload) {
   return requestJson('/api/payments/submissions', {
     method: 'POST',
@@ -149,8 +175,11 @@ module.exports = {
   generateInvoice,
   getApiBaseUrl,
   inviteTenant,
+  resolveUploadUrl,
+  reviewMeterReading,
   reviewPayment,
   scheduleMoveOut,
+  submitMeterReading,
   submitPayment,
   updateProperty,
   updateReminderStatus,

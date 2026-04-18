@@ -35,6 +35,12 @@ const PAYMENT_SUBMISSION_STATUS = {
   REJECTED: 'REJECTED',
 };
 
+const METER_READING_STATUS = {
+  PENDING_REVIEW: 'PENDING_REVIEW',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+};
+
 let idCounter = 0;
 
 function makeId(prefix) {
@@ -118,6 +124,46 @@ function buildReminderSchedule(invoice, referenceDate = getTodayIso()) {
   );
 }
 
+function createMeterReadingSubmission({
+  tenancy,
+  room,
+  month,
+  openingReading,
+  closingReading,
+  tariff,
+  photoLabel,
+  referenceDate = getTodayIso(),
+}) {
+  if (
+    !tenancy ||
+    ![TENANCY_STATUS.ACTIVE, TENANCY_STATUS.MOVE_OUT_SCHEDULED].includes(tenancy.status)
+  ) {
+    throw new Error('Only active or moving-out tenancies can submit meter readings.');
+  }
+
+  calculateElectricityCharge(openingReading, closingReading, tariff);
+
+  return {
+    id: makeId('reading'),
+    propertyId: tenancy.propertyId,
+    tenancyId: tenancy.id,
+    tenantId: tenancy.tenantId,
+    roomId: room.id,
+    meterId: room.meterId,
+    invoiceId: null,
+    month,
+    openingReading: Number(openingReading),
+    closingReading: Number(closingReading),
+    tariff: Number(tariff),
+    capturedAt: referenceDate,
+    status: METER_READING_STATUS.PENDING_REVIEW,
+    photoLabel: photoLabel || '',
+    reviewedAt: null,
+    reviewerNote: '',
+    capturedByRole: 'TENANT',
+  };
+}
+
 function createInvoiceForTenancy({
   tenancy,
   room,
@@ -126,6 +172,11 @@ function createInvoiceForTenancy({
   openingReading,
   closingReading,
   tariff,
+  photoLabel = '',
+  status = METER_READING_STATUS.APPROVED,
+  capturedByRole = 'OWNER',
+  reviewedAt = null,
+  reviewerNote = '',
   referenceDate = getTodayIso(),
 }) {
   if (
@@ -190,13 +241,24 @@ function createInvoiceForTenancy({
   const meterReading = {
     id: makeId('reading'),
     propertyId: tenancy.propertyId,
+    tenancyId: tenancy.id,
+    tenantId: tenancy.tenantId,
     roomId: room.id,
     meterId: room.meterId,
+    invoiceId: invoice.id,
     month,
     openingReading: Number(openingReading),
     closingReading: Number(closingReading),
     tariff: Number(tariff),
     capturedAt: referenceDate,
+    status,
+    photoLabel,
+    reviewedAt:
+      status === METER_READING_STATUS.PENDING_REVIEW
+        ? null
+        : reviewedAt || referenceDate,
+    reviewerNote,
+    capturedByRole,
   };
 
   return {
@@ -295,6 +357,7 @@ function cancelInvoiceReminders(reminders, invoiceId) {
 
 module.exports = {
   INVOICE_STATUS,
+  METER_READING_STATUS,
   PAYMENT_SUBMISSION_STATUS,
   ROOM_STATUS,
   TENANCY_STATUS,
@@ -304,6 +367,7 @@ module.exports = {
   calculateElectricityCharge,
   cancelInvoiceReminders,
   createInvoiceForTenancy,
+  createMeterReadingSubmission,
   createTenantInvite,
   deriveInvoiceStatus,
   isTenantProfileComplete,

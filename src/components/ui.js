@@ -3,59 +3,139 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import QRCode from 'qrcode';
 
 export const palette = {
-  background: '#f6efe4',
-  paper: '#fffaf1',
-  card: '#fff9f0',
-  ink: '#19231f',
-  muted: '#66756d',
-  accent: '#c6674d',
-  forest: '#184b43',
-  border: '#e8dcc8',
-  success: '#2e7d4f',
-  warning: '#a86012',
-  danger: '#b84334',
-  info: '#476c9b',
+  background: '#0B0F19',
+  paper: '#111827',
+  card: '#111827',
+  cardAlt: '#0F172A',
+  cardMuted: '#131D31',
+  ink: '#E5E7EB',
+  muted: '#9CA3AF',
+  accent: '#6366F1',
+  accentHover: '#4F46E5',
+  accentSoft: 'rgba(99, 102, 241, 0.16)',
+  border: '#1F2937',
+  borderStrong: '#273449',
+  success: '#22C55E',
+  successSoft: 'rgba(34, 197, 94, 0.16)',
+  warning: '#F59E0B',
+  warningSoft: 'rgba(245, 158, 11, 0.16)',
+  danger: '#EF4444',
+  dangerSoft: 'rgba(239, 68, 68, 0.16)',
+  info: '#60A5FA',
+  infoSoft: 'rgba(96, 165, 250, 0.16)',
+  white: '#FFFFFF',
 };
 
 const statusTone = {
-  VACANT: { background: '#edf7ee', color: '#2e7d4f' },
-  OCCUPIED: { background: '#fdf0dc', color: '#a86012' },
-  NOTICE: { background: '#fce8e5', color: '#b84334' },
-  ACTIVE: { background: '#edf7ee', color: '#2e7d4f' },
-  INVITED: { background: '#eef4fc', color: '#476c9b' },
-  MOVE_OUT_SCHEDULED: { background: '#fdf0dc', color: '#a86012' },
-  CLOSED: { background: '#efefef', color: '#525252' },
-  DUE: { background: '#eef4fc', color: '#476c9b' },
-  OVERDUE: { background: '#fce8e5', color: '#b84334' },
-  PAYMENT_SUBMITTED: { background: '#fff2d8', color: '#8f5b05' },
-  PAID: { background: '#edf7ee', color: '#2e7d4f' },
-  READY: { background: '#fff2d8', color: '#8f5b05' },
-  SCHEDULED: { background: '#eef4fc', color: '#476c9b' },
-  SENT: { background: '#edf7ee', color: '#2e7d4f' },
-  FAILED: { background: '#fce8e5', color: '#b84334' },
-  CANCELED: { background: '#efefef', color: '#525252' },
-  PENDING_REVIEW: { background: '#fff2d8', color: '#8f5b05' },
-  APPROVED: { background: '#edf7ee', color: '#2e7d4f' },
-  REJECTED: { background: '#fce8e5', color: '#b84334' },
-  WHATSAPP: { background: '#edf7ee', color: '#2e7d4f' },
-  IN_APP: { background: '#eef4fc', color: '#476c9b' },
+  VACANT: { background: 'rgba(96, 165, 250, 0.16)', color: '#93C5FD' },
+  OCCUPIED: { background: 'rgba(99, 102, 241, 0.16)', color: '#C7D2FE' },
+  NOTICE: { background: 'rgba(245, 158, 11, 0.16)', color: '#FCD34D' },
+  ACTIVE: { background: 'rgba(34, 197, 94, 0.16)', color: '#86EFAC' },
+  INVITED: { background: 'rgba(96, 165, 250, 0.16)', color: '#93C5FD' },
+  MOVE_OUT_SCHEDULED: { background: 'rgba(245, 158, 11, 0.16)', color: '#FCD34D' },
+  CLOSED: { background: 'rgba(156, 163, 175, 0.16)', color: '#D1D5DB' },
+  DUE: { background: 'rgba(245, 158, 11, 0.16)', color: '#FCD34D' },
+  OVERDUE: { background: 'rgba(239, 68, 68, 0.16)', color: '#FCA5A5' },
+  PAYMENT_SUBMITTED: { background: 'rgba(99, 102, 241, 0.16)', color: '#C7D2FE' },
+  PAID: { background: 'rgba(34, 197, 94, 0.16)', color: '#86EFAC' },
+  READY: { background: 'rgba(245, 158, 11, 0.16)', color: '#FCD34D' },
+  COMPLETE: { background: 'rgba(34, 197, 94, 0.16)', color: '#86EFAC' },
+  PENDING: { background: 'rgba(245, 158, 11, 0.16)', color: '#FCD34D' },
+  SCHEDULED: { background: 'rgba(96, 165, 250, 0.16)', color: '#93C5FD' },
+  SENT: { background: 'rgba(34, 197, 94, 0.16)', color: '#86EFAC' },
+  FAILED: { background: 'rgba(239, 68, 68, 0.16)', color: '#FCA5A5' },
+  CANCELED: { background: 'rgba(156, 163, 175, 0.16)', color: '#D1D5DB' },
+  PENDING_REVIEW: { background: 'rgba(99, 102, 241, 0.16)', color: '#C7D2FE' },
+  APPROVED: { background: 'rgba(34, 197, 94, 0.16)', color: '#86EFAC' },
+  REJECTED: { background: 'rgba(239, 68, 68, 0.16)', color: '#FCA5A5' },
+  WHATSAPP: { background: 'rgba(34, 197, 94, 0.16)', color: '#86EFAC' },
+  IN_APP: { background: 'rgba(96, 165, 250, 0.16)', color: '#93C5FD' },
 };
 
-export function ScreenSurface({ children }) {
+const sectionTones = {
+  default: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+  },
+  soft: {
+    backgroundColor: palette.cardAlt,
+    borderColor: palette.borderStrong,
+  },
+  forest: {
+    backgroundColor: 'rgba(34, 197, 94, 0.09)',
+    borderColor: 'rgba(34, 197, 94, 0.24)',
+  },
+  accent: {
+    backgroundColor: 'rgba(99, 102, 241, 0.11)',
+    borderColor: 'rgba(99, 102, 241, 0.28)',
+  },
+};
+
+const focusTones = {
+  forest: {
+    backgroundColor: '#101A2B',
+    borderColor: 'rgba(34, 197, 94, 0.26)',
+    eyebrowColor: '#86EFAC',
+    titleColor: palette.ink,
+    descriptionColor: '#B8C0CC',
+  },
+  accent: {
+    backgroundColor: '#111A31',
+    borderColor: 'rgba(99, 102, 241, 0.32)',
+    eyebrowColor: '#C7D2FE',
+    titleColor: palette.ink,
+    descriptionColor: '#B7C1D8',
+  },
+  soft: {
+    backgroundColor: palette.cardAlt,
+    borderColor: palette.borderStrong,
+    eyebrowColor: '#A5B4FC',
+    titleColor: palette.ink,
+    descriptionColor: palette.muted,
+  },
+};
+
+function getBannerTone(tone) {
+  const map = {
+    info: { backgroundColor: palette.infoSoft, color: '#BFDBFE', borderColor: 'rgba(96, 165, 250, 0.24)' },
+    success: { backgroundColor: palette.successSoft, color: '#86EFAC', borderColor: 'rgba(34, 197, 94, 0.24)' },
+    danger: { backgroundColor: palette.dangerSoft, color: '#FCA5A5', borderColor: 'rgba(239, 68, 68, 0.24)' },
+  };
+
+  return map[tone] || map.info;
+}
+
+export function ScreenSurface({ children, bottomBar = null }) {
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
-      {children}
-    </ScrollView>
+    <View style={styles.screenShell}>
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={[styles.screenContent, bottomBar && styles.screenContentWithBottomBar]}
+        showsVerticalScrollIndicator={false}
+      >
+        {children}
+      </ScrollView>
+      {bottomBar ? <View style={styles.bottomBarWrap}>{bottomBar}</View> : null}
+    </View>
   );
 }
 
-export function PageHeader({ eyebrow, title, subtitle, actionLabel, onAction }) {
+export function PageHeader({ eyebrow, title, subtitle, highlights = [], actionLabel, onAction }) {
   return (
     <View style={styles.headerWrap}>
       <View style={styles.heroPanel}>
         <Text style={styles.eyebrow}>{eyebrow}</Text>
         <Text style={styles.heroTitle}>{title}</Text>
         <Text style={styles.heroSubtitle}>{subtitle}</Text>
+        {highlights.length ? (
+          <View style={styles.highlightWrap}>
+            {highlights.map((item) => (
+              <View key={item} style={styles.highlightPill}>
+                <Text style={styles.highlightText}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
       {actionLabel ? <PrimaryButton label={actionLabel} onPress={onAction} tone="dark" /> : null}
     </View>
@@ -63,14 +143,18 @@ export function PageHeader({ eyebrow, title, subtitle, actionLabel, onAction }) 
 }
 
 export function Banner({ message, tone = 'info' }) {
-  const map = {
-    info: { backgroundColor: '#eef4fc', color: palette.info },
-    success: { backgroundColor: '#edf7ee', color: palette.success },
-    danger: { backgroundColor: '#fce8e5', color: palette.danger },
-  };
-  const colors = map[tone] || map.info;
+  const colors = getBannerTone(tone);
+
   return (
-    <View style={[styles.banner, { backgroundColor: colors.backgroundColor }]}>
+    <View
+      style={[
+        styles.banner,
+        {
+          backgroundColor: colors.backgroundColor,
+          borderColor: colors.borderColor,
+        },
+      ]}
+    >
       <Text style={[styles.bannerText, { color: colors.color }]}>{message}</Text>
     </View>
   );
@@ -81,11 +165,16 @@ export function TabStrip({ tabs, activeTab, onChange }) {
     <View style={styles.tabStrip}>
       {tabs.map((tab) => {
         const isActive = tab.value === activeTab;
+
         return (
           <Pressable
             key={tab.value}
             onPress={() => onChange(tab.value)}
-            style={[styles.tabItem, isActive && styles.tabItemActive]}
+            style={({ pressed }) => [
+              styles.tabCard,
+              isActive && styles.tabCardActive,
+              pressed && styles.pressedScale,
+            ]}
           >
             <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
           </Pressable>
@@ -95,14 +184,63 @@ export function TabStrip({ tabs, activeTab, onChange }) {
   );
 }
 
-export function SectionCard({ title, subtitle, children }) {
+export function SectionCard({ title, subtitle, tone = 'default', children }) {
+  const toneStyles = sectionTones[tone] || sectionTones.default;
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, toneStyles]}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle}>{title}</Text>
         {subtitle ? <Text style={styles.cardSubtitle}>{subtitle}</Text> : null}
       </View>
       <View style={styles.cardBody}>{children}</View>
+    </View>
+  );
+}
+
+export function FocusCard({ eyebrow, title, description, tone = 'forest', actionLabel, onAction, children }) {
+  const toneStyles = focusTones[tone] || focusTones.forest;
+  const actionTone = tone === 'forest' ? 'ghost' : 'primary';
+
+  return (
+    <View
+      style={[
+        styles.focusCard,
+        {
+          backgroundColor: toneStyles.backgroundColor,
+          borderColor: toneStyles.borderColor,
+        },
+      ]}
+    >
+      {eyebrow ? <Text style={[styles.focusEyebrow, { color: toneStyles.eyebrowColor }]}>{eyebrow}</Text> : null}
+      <Text style={[styles.focusTitle, { color: toneStyles.titleColor }]}>{title}</Text>
+      {description ? <Text style={[styles.focusDescription, { color: toneStyles.descriptionColor }]}>{description}</Text> : null}
+      {children ? <View style={styles.focusContent}>{children}</View> : null}
+      {actionLabel ? <PrimaryButton label={actionLabel} onPress={onAction} tone={actionTone} /> : null}
+    </View>
+  );
+}
+
+export function ActionGrid({ items }) {
+  return (
+    <View style={styles.actionGrid}>
+      {items.map((item) => (
+        <Pressable
+          key={item.title}
+          onPress={item.onPress}
+          style={({ pressed }) => [
+            styles.actionCard,
+            item.tone === 'accent' && styles.actionCardAccent,
+            item.tone === 'forest' && styles.actionCardForest,
+            pressed && styles.pressedScale,
+          ]}
+        >
+          {item.eyebrow ? <Text style={styles.actionEyebrow}>{item.eyebrow}</Text> : null}
+          <Text style={styles.actionTitle}>{item.title}</Text>
+          <Text style={styles.actionDescription}>{item.description}</Text>
+          {item.label ? <Text style={styles.actionLink}>{item.label}</Text> : null}
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -121,10 +259,11 @@ export function MetricRow({ items }) {
 }
 
 export function StatusBadge({ label }) {
-  const colors = statusTone[label] || { background: '#efefef', color: '#525252' };
+  const colors = statusTone[label] || { background: 'rgba(156, 163, 175, 0.16)', color: '#D1D5DB' };
+
   return (
     <View style={[styles.statusBadge, { backgroundColor: colors.background }]}>
-      <Text style={[styles.statusLabel, { color: colors.color }]}>{label.replaceAll('_', ' ')}</Text>
+      <Text style={[styles.statusLabel, { color: colors.color }]}>{String(label).replaceAll('_', ' ')}</Text>
     </View>
   );
 }
@@ -139,6 +278,8 @@ export function KeyValueRow({ label, value }) {
 }
 
 export function Field({ label, value, onChangeText, placeholder, keyboardType, multiline = false }) {
+  const [isFocused, setIsFocused] = useState(false);
+
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -146,10 +287,17 @@ export function Field({ label, value, onChangeText, placeholder, keyboardType, m
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#97a29d"
+        placeholderTextColor="#6B7280"
         keyboardType={keyboardType}
         multiline={multiline}
-        style={[styles.input, multiline && styles.inputMultiline]}
+        selectionColor={palette.accent}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        style={[
+          styles.input,
+          multiline && styles.inputMultiline,
+          isFocused && styles.inputFocused,
+        ]}
       />
     </View>
   );
@@ -160,11 +308,16 @@ export function ChoiceChips({ options, value, onChange }) {
     <View style={styles.choiceWrap}>
       {options.map((option) => {
         const selected = option.value === value;
+
         return (
           <Pressable
             key={option.value}
             onPress={() => onChange(option.value)}
-            style={[styles.choiceChip, selected && styles.choiceChipSelected]}
+            style={({ pressed }) => [
+              styles.choiceChip,
+              selected && styles.choiceChipSelected,
+              pressed && styles.pressedScale,
+            ]}
           >
             <Text style={[styles.choiceTitle, selected && styles.choiceTitleSelected]}>{option.label}</Text>
             {option.meta ? (
@@ -179,10 +332,10 @@ export function ChoiceChips({ options, value, onChange }) {
 
 export function PrimaryButton({ label, onPress, tone = 'primary', disabled = false }) {
   const tones = {
-    primary: { backgroundColor: palette.accent, color: '#fff9f0' },
-    dark: { backgroundColor: palette.forest, color: '#fff9f0' },
-    ghost: { backgroundColor: '#f2e6d4', color: palette.ink },
-    danger: { backgroundColor: '#f4d6d1', color: palette.danger },
+    primary: { backgroundColor: palette.accent, color: palette.white, borderColor: palette.accent },
+    dark: { backgroundColor: palette.cardAlt, color: palette.ink, borderColor: palette.borderStrong },
+    ghost: { backgroundColor: 'transparent', color: palette.ink, borderColor: palette.borderStrong },
+    danger: { backgroundColor: palette.dangerSoft, color: '#FCA5A5', borderColor: 'rgba(239, 68, 68, 0.24)' },
   };
   const colors = tones[tone] || tones.primary;
 
@@ -190,12 +343,17 @@ export function PrimaryButton({ label, onPress, tone = 'primary', disabled = fal
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={[
+      style={({ pressed }) => [
         styles.button,
-        { backgroundColor: disabled ? '#e3d8c8' : colors.backgroundColor },
+        {
+          backgroundColor: disabled ? '#182235' : colors.backgroundColor,
+          borderColor: disabled ? '#223147' : colors.borderColor,
+        },
+        pressed && !disabled && styles.pressedScale,
+        disabled && styles.buttonDisabled,
       ]}
     >
-      <Text style={[styles.buttonText, { color: disabled ? '#7c867f' : colors.color }]}>{label}</Text>
+      <Text style={[styles.buttonText, { color: disabled ? '#708097' : colors.color }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -223,8 +381,8 @@ export function QrCard({ value, subtitle }) {
       margin: 1,
       width: 240,
       color: {
-        dark: palette.forest,
-        light: '#FFF8EE',
+        dark: '#0B0F19',
+        light: '#FFFFFF',
       },
     })
       .then((nextUri) => {
@@ -245,7 +403,9 @@ export function QrCard({ value, subtitle }) {
 
   return (
     <View style={styles.qrCard}>
-      {uri ? <Image source={{ uri }} style={styles.qrImage} /> : <View style={styles.qrPlaceholder} />}
+      <View style={styles.qrCanvasWrap}>
+        {uri ? <Image source={{ uri }} style={styles.qrImage} /> : <View style={styles.qrPlaceholder} />}
+      </View>
       <Text style={styles.qrTitle}>UPI QR</Text>
       <Text style={styles.qrSubtitle}>{subtitle}</Text>
     </View>
@@ -253,46 +413,91 @@ export function QrCard({ value, subtitle }) {
 }
 
 const styles = StyleSheet.create({
+  screenShell: {
+    flex: 1,
+    backgroundColor: palette.background,
+  },
   screen: {
     flex: 1,
     backgroundColor: palette.background,
   },
   screenContent: {
-    padding: 20,
+    width: '100%',
+    maxWidth: 1040,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 56,
     gap: 18,
+  },
+  screenContentWithBottomBar: {
+    paddingBottom: 132,
+  },
+  bottomBarWrap: {
+    backgroundColor: 'rgba(11, 15, 25, 0.96)',
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 18,
   },
   headerWrap: {
     gap: 12,
   },
   heroPanel: {
-    padding: 20,
+    padding: 24,
     borderRadius: 28,
-    backgroundColor: palette.forest,
-    gap: 8,
+    backgroundColor: palette.cardAlt,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    gap: 12,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 6,
   },
   eyebrow: {
-    color: '#d8c18f',
+    color: '#A5B4FC',
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: 1.2,
     fontWeight: '700',
   },
   heroTitle: {
-    color: '#fff8ee',
-    fontSize: 30,
-    lineHeight: 34,
+    color: palette.ink,
+    fontSize: 28,
+    lineHeight: 32,
     fontWeight: '800',
   },
   heroSubtitle: {
-    color: '#dbe7df',
+    color: palette.muted,
     fontSize: 15,
     lineHeight: 22,
+  },
+  highlightWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  highlightPill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: palette.accentSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.24)',
+  },
+  highlightText: {
+    color: '#C7D2FE',
+    fontSize: 12,
+    fontWeight: '700',
   },
   banner: {
     borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 12,
+    borderWidth: 1,
   },
   bannerText: {
     fontSize: 14,
@@ -301,39 +506,53 @@ const styles = StyleSheet.create({
   },
   tabStrip: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 8,
+    padding: 6,
+    borderRadius: 22,
+    backgroundColor: palette.cardAlt,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    width: '100%',
+    maxWidth: 1040,
+    alignSelf: 'center',
   },
-  tabItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-    backgroundColor: '#efe5d5',
+  tabCard: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  tabItemActive: {
+  tabCardActive: {
     backgroundColor: palette.accent,
   },
   tabLabel: {
-    color: palette.ink,
-    fontSize: 13,
+    color: palette.muted,
+    fontSize: 14,
     fontWeight: '700',
   },
   tabLabelActive: {
-    color: '#fffaf1',
+    color: palette.white,
   },
   card: {
-    backgroundColor: palette.card,
     borderRadius: 24,
     padding: 18,
     borderWidth: 1,
-    borderColor: palette.border,
     gap: 14,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 4,
   },
   cardHeader: {
     gap: 6,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
     color: palette.ink,
   },
@@ -345,6 +564,81 @@ const styles = StyleSheet.create({
   cardBody: {
     gap: 14,
   },
+  focusCard: {
+    borderRadius: 28,
+    padding: 20,
+    borderWidth: 1,
+    gap: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    elevation: 5,
+  },
+  focusEyebrow: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+  },
+  focusTitle: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '800',
+  },
+  focusDescription: {
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  focusContent: {
+    gap: 10,
+  },
+  actionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  actionCard: {
+    width: '48%',
+    minWidth: 150,
+    padding: 16,
+    borderRadius: 22,
+    backgroundColor: palette.cardAlt,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    gap: 8,
+  },
+  actionCardAccent: {
+    backgroundColor: 'rgba(99, 102, 241, 0.11)',
+    borderColor: 'rgba(99, 102, 241, 0.28)',
+  },
+  actionCardForest: {
+    backgroundColor: 'rgba(34, 197, 94, 0.09)',
+    borderColor: 'rgba(34, 197, 94, 0.24)',
+  },
+  actionEyebrow: {
+    color: '#A5B4FC',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  actionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: palette.ink,
+  },
+  actionDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: palette.muted,
+  },
+  actionLink: {
+    marginTop: 4,
+    color: '#C7D2FE',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   metricRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -353,13 +647,15 @@ const styles = StyleSheet.create({
   metricCard: {
     flexGrow: 1,
     minWidth: '46%',
-    backgroundColor: palette.paper,
+    backgroundColor: palette.cardAlt,
     borderRadius: 20,
     padding: 16,
     gap: 8,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
   },
   metricValue: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '800',
     color: palette.ink,
   },
@@ -382,16 +678,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 16,
+    alignItems: 'flex-start',
+    paddingVertical: 4,
   },
   keyLabel: {
     flex: 1,
     fontSize: 13,
     color: palette.muted,
+    lineHeight: 19,
   },
   keyValue: {
     flex: 1,
     textAlign: 'right',
     fontSize: 13,
+    lineHeight: 19,
     color: palette.ink,
     fontWeight: '700',
   },
@@ -399,19 +699,28 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   fieldLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: palette.ink,
+    letterSpacing: 0.2,
   },
   input: {
     borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: '#fffdf8',
+    borderColor: palette.borderStrong,
+    backgroundColor: palette.cardAlt,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
     color: palette.ink,
+  },
+  inputFocused: {
+    borderColor: palette.accent,
+    shadowColor: palette.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 2,
   },
   inputMultiline: {
     minHeight: 96,
@@ -426,13 +735,14 @@ const styles = StyleSheet.create({
     minWidth: '47%',
     padding: 14,
     borderRadius: 18,
-    backgroundColor: '#f1eadf',
+    backgroundColor: palette.cardAlt,
+    borderWidth: 1,
+    borderColor: palette.border,
     gap: 4,
   },
   choiceChipSelected: {
-    backgroundColor: '#f6d2c8',
-    borderWidth: 1,
-    borderColor: '#d88973',
+    backgroundColor: palette.accentSoft,
+    borderColor: 'rgba(99, 102, 241, 0.32)',
   },
   choiceTitle: {
     color: palette.ink,
@@ -440,7 +750,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   choiceTitleSelected: {
-    color: '#843a2b',
+    color: '#C7D2FE',
   },
   choiceMeta: {
     color: palette.muted,
@@ -448,14 +758,19 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   choiceMetaSelected: {
-    color: '#975747',
+    color: '#A5B4FC',
   },
   button: {
+    minHeight: 48,
     paddingHorizontal: 16,
     paddingVertical: 13,
-    borderRadius: 18,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+  },
+  buttonDisabled: {
+    opacity: 0.75,
   },
   buttonText: {
     fontWeight: '800',
@@ -464,7 +779,9 @@ const styles = StyleSheet.create({
   emptyState: {
     padding: 18,
     borderRadius: 20,
-    backgroundColor: '#f1eadf',
+    backgroundColor: palette.cardAlt,
+    borderWidth: 1,
+    borderColor: palette.border,
     gap: 6,
   },
   emptyTitle: {
@@ -481,26 +798,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     flexWrap: 'wrap',
+    alignItems: 'center',
   },
   qrCard: {
     borderRadius: 24,
     padding: 18,
     alignItems: 'center',
-    backgroundColor: '#fff8ee',
+    backgroundColor: palette.cardAlt,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: palette.borderStrong,
     gap: 10,
+  },
+  qrCanvasWrap: {
+    padding: 14,
+    borderRadius: 20,
+    backgroundColor: palette.white,
   },
   qrImage: {
     width: 220,
     height: 220,
-    borderRadius: 16,
+    borderRadius: 12,
   },
   qrPlaceholder: {
     width: 220,
     height: 220,
-    borderRadius: 16,
-    backgroundColor: '#efe7db',
+    borderRadius: 12,
+    backgroundColor: '#E5E7EB',
   },
   qrTitle: {
     fontWeight: '800',
@@ -511,5 +834,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: palette.muted,
     lineHeight: 20,
+  },
+  pressedScale: {
+    transform: [{ scale: 0.985 }],
   },
 });

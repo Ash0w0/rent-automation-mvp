@@ -3,11 +3,13 @@ const assert = require('node:assert/strict');
 
 const {
   INVOICE_STATUS,
+  METER_READING_STATUS,
   TENANCY_STATUS,
   buildContractRecord,
   buildReminderSchedule,
   calculateElectricityCharge,
   createInvoiceForTenancy,
+  createMeterReadingSubmission,
 } = require('../src/lib/rentEngine');
 
 test('calculateElectricityCharge computes usage and tariff', () => {
@@ -47,6 +49,35 @@ test('createInvoiceForTenancy snapshots rent, readings, and a payment link', () 
   assert.equal(bundle.invoice.readingSnapshot.closingReading, 280);
   assert.match(bundle.invoice.paymentLink, /^upi:\/\/pay\?/);
   assert.equal(bundle.reminders.length, 6);
+  assert.equal(bundle.meterReading.status, METER_READING_STATUS.APPROVED);
+  assert.equal(bundle.meterReading.invoiceId, bundle.invoice.id);
+});
+
+test('createMeterReadingSubmission creates a tenant approval record before billing', () => {
+  const tenancy = {
+    id: 'tenancy-1',
+    propertyId: 'property-1',
+    roomId: 'room-101',
+    tenantId: 'tenant-1',
+    status: TENANCY_STATUS.ACTIVE,
+  };
+  const room = { id: 'room-101', meterId: 'meter-101' };
+
+  const reading = createMeterReadingSubmission({
+    tenancy,
+    room,
+    month: '2026-04',
+    openingReading: 280,
+    closingReading: 296,
+    tariff: 8.5,
+    photoLabel: 'meter-april.jpg',
+    referenceDate: '2026-04-30',
+  });
+
+  assert.equal(reading.status, METER_READING_STATUS.PENDING_REVIEW);
+  assert.equal(reading.photoLabel, 'meter-april.jpg');
+  assert.equal(reading.invoiceId, null);
+  assert.equal(reading.capturedByRole, 'TENANT');
 });
 
 test('buildContractRecord enforces required fields', () => {

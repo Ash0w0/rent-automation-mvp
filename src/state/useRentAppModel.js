@@ -10,8 +10,10 @@ const {
   fetchAppState,
   generateInvoice,
   inviteTenant,
+  reviewMeterReading,
   reviewPayment,
   scheduleMoveOut,
+  submitMeterReading,
   submitPayment,
   updateProperty,
   updateReminderStatus,
@@ -172,6 +174,18 @@ export function useRentAppModel() {
 
     generateInvoice(payload) {
       return runServerAction(() => generateInvoice(payload), {
+        preserveSession: true,
+      });
+    },
+
+    submitMeterReading(payload) {
+      return runServerAction(() => submitMeterReading(payload), {
+        preserveSession: true,
+      });
+    },
+
+    reviewMeterReading(payload) {
+      return runServerAction(() => reviewMeterReading(payload), {
         preserveSession: true,
       });
     },

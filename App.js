@@ -3,8 +3,8 @@ import { SafeAreaView, StyleSheet, View } from 'react-native';
 
 import { AuthScreen } from './src/screens/AuthScreen';
 import { palette } from './src/components/uiAirbnb';
-import { OwnerWorkspaceV2 } from './src/screens/OwnerWorkspaceV2';
-import { TenantWorkspaceV2 } from './src/screens/TenantWorkspaceV2';
+import { OwnerWorkspaceMobile } from './src/screens/OwnerWorkspaceMobile';
+import { TenantWorkspaceMobile } from './src/screens/TenantWorkspaceMobile';
 import { useRentAppModel } from './src/state/useRentAppModel';
 
 export default function App() {
@@ -12,7 +12,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <View style={styles.appShell}>
         {!state.session.role ? (
           <AuthScreen
@@ -21,9 +21,9 @@ export default function App() {
             backendError={state.backendError}
           />
         ) : state.session.role === 'owner' ? (
-          <OwnerWorkspaceV2 state={state} actions={actions} onLogout={actions.logout} />
+          <OwnerWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
         ) : (
-          <TenantWorkspaceV2 state={state} actions={actions} onLogout={actions.logout} />
+          <TenantWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
         )}
       </View>
     </SafeAreaView>
@@ -33,10 +33,10 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: palette.background,
+    backgroundColor: palette.backgroundWarm,
   },
   appShell: {
     flex: 1,
-    backgroundColor: palette.background,
+    backgroundColor: palette.backgroundWarm,
   },
 });

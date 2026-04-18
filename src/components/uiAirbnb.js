@@ -3,105 +3,112 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import QRCode from 'qrcode';
 
 export const palette = {
-  background: '#FBF7F2',
-  backgroundWarm: '#F5EFE6',
+  background: '#EEF4F3',
+  backgroundWarm: '#DDE9E6',
   surface: '#FFFFFF',
-  surfaceMuted: '#F7F4EF',
-  surfaceTint: '#FFF3F5',
-  surfaceSuccess: '#EFF7F1',
-  surfaceWarning: '#FFF5E9',
+  surfaceMuted: '#F5FBFA',
+  surfaceTint: '#E8FBF6',
+  surfaceSuccess: '#EBF9F1',
+  surfaceWarning: '#FFF6E8',
   surfaceDanger: '#FFF1EF',
-  ink: '#222222',
-  inkSoft: '#3B3B3B',
-  muted: '#6A6A6A',
-  mutedSoft: '#8B8B8B',
-  border: '#E9E3DA',
-  borderStrong: '#DCD4C8',
-  accent: '#FF385C',
-  accentDeep: '#E31C5F',
-  accentSoft: '#FFE3E8',
-  success: '#2E7D32',
-  warning: '#B56713',
-  danger: '#C13515',
-  info: '#457B9D',
+  ink: '#2E3138',
+  inkSoft: '#48505A',
+  muted: '#8E96A3',
+  mutedSoft: '#AEB6C2',
+  border: '#D8E7E3',
+  borderStrong: '#C6DBD6',
+  accent: '#24C9AE',
+  accentDeep: '#0D9F88',
+  accentSoft: '#D6FFF7',
+  success: '#22A06B',
+  warning: '#E29A2D',
+  danger: '#EB5757',
+  info: '#3B82F6',
   white: '#FFFFFF',
-  black: '#111111',
+  black: '#20242B',
 };
 
 const statusTone = {
-  VACANT: { background: '#EEF4FF', color: '#315BA8' },
-  OCCUPIED: { background: '#F4F0FF', color: '#6B4DC4' },
-  NOTICE: { background: '#FFF4E2', color: '#B56713' },
-  ACTIVE: { background: '#EAF6ED', color: '#2E7D32' },
-  INVITED: { background: '#FFF3F5', color: '#E31C5F' },
-  MOVE_OUT_SCHEDULED: { background: '#FFF4E2', color: '#B56713' },
-  CLOSED: { background: '#EFEAE3', color: '#6A6A6A' },
-  DUE: { background: '#FFF4E2', color: '#B56713' },
-  OVERDUE: { background: '#FFF1EF', color: '#C13515' },
-  PAYMENT_SUBMITTED: { background: '#FFF3F5', color: '#E31C5F' },
-  PAID: { background: '#EAF6ED', color: '#2E7D32' },
-  READY: { background: '#FFF4E2', color: '#B56713' },
-  COMPLETE: { background: '#EAF6ED', color: '#2E7D32' },
-  PENDING: { background: '#FFF4E2', color: '#B56713' },
-  SCHEDULED: { background: '#EEF4FF', color: '#315BA8' },
-  SENT: { background: '#EAF6ED', color: '#2E7D32' },
-  FAILED: { background: '#FFF1EF', color: '#C13515' },
-  CANCELED: { background: '#EFEAE3', color: '#6A6A6A' },
-  PENDING_REVIEW: { background: '#FFF3F5', color: '#E31C5F' },
-  APPROVED: { background: '#EAF6ED', color: '#2E7D32' },
-  REJECTED: { background: '#FFF1EF', color: '#C13515' },
-  WHATSAPP: { background: '#EAF6ED', color: '#2E7D32' },
-  IN_APP: { background: '#EEF4FF', color: '#315BA8' },
+  VACANT: { background: '#EEF7F5', color: '#0D8C76' },
+  OCCUPIED: { background: '#EAF2FF', color: '#4466B0' },
+  NOTICE: { background: '#FFF6E8', color: '#C78520' },
+  ACTIVE: { background: '#EBF9F1', color: '#1D8D5E' },
+  INVITED: { background: '#E8FBF6', color: '#0D9F88' },
+  MOVE_OUT_SCHEDULED: { background: '#FFF6E8', color: '#C78520' },
+  CLOSED: { background: '#F1F4F4', color: '#6C7683' },
+  DUE: { background: '#FFF6E8', color: '#C78520' },
+  OVERDUE: { background: '#FFF1EF', color: '#D34C4C' },
+  PAYMENT_SUBMITTED: { background: '#E8FBF6', color: '#0D9F88' },
+  PAID: { background: '#EBF9F1', color: '#1D8D5E' },
+  READY: { background: '#EEF7F5', color: '#0D8C76' },
+  COMPLETE: { background: '#EBF9F1', color: '#1D8D5E' },
+  PENDING: { background: '#FFF6E8', color: '#C78520' },
+  SCHEDULED: { background: '#EAF2FF', color: '#4466B0' },
+  SENT: { background: '#EBF9F1', color: '#1D8D5E' },
+  FAILED: { background: '#FFF1EF', color: '#D34C4C' },
+  CANCELED: { background: '#F1F4F4', color: '#6C7683' },
+  PENDING_REVIEW: { background: '#E8FBF6', color: '#0D9F88' },
+  APPROVED: { background: '#EBF9F1', color: '#1D8D5E' },
+  REJECTED: { background: '#FFF1EF', color: '#D34C4C' },
+  WHATSAPP: { background: '#EBF9F1', color: '#1D8D5E' },
+  IN_APP: { background: '#EAF2FF', color: '#4466B0' },
 };
 
 const sectionTones = {
   default: { backgroundColor: palette.surface, borderColor: palette.border },
   soft: { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
-  accent: { backgroundColor: palette.surfaceTint, borderColor: '#FFD8DF' },
-  forest: { backgroundColor: palette.surfaceSuccess, borderColor: '#D9EBDD' },
+  accent: { backgroundColor: palette.surfaceTint, borderColor: '#C7F0E7' },
+  forest: { backgroundColor: palette.surfaceSuccess, borderColor: '#CAEAD8' },
 };
 
 const focusTones = {
   forest: {
-    backgroundColor: '#F8FBF8',
-    borderColor: '#D7EAD9',
+    backgroundColor: palette.surfaceSuccess,
+    borderColor: '#CAEAD8',
     eyebrowColor: palette.success,
     titleColor: palette.ink,
-    descriptionColor: palette.muted,
+    descriptionColor: palette.inkSoft,
   },
   accent: {
     backgroundColor: palette.surfaceTint,
-    borderColor: '#FFD8DF',
+    borderColor: '#C7F0E7',
     eyebrowColor: palette.accentDeep,
     titleColor: palette.ink,
-    descriptionColor: palette.muted,
+    descriptionColor: palette.inkSoft,
   },
   soft: {
     backgroundColor: palette.surface,
     borderColor: palette.border,
     eyebrowColor: palette.mutedSoft,
     titleColor: palette.ink,
-    descriptionColor: palette.muted,
+    descriptionColor: palette.inkSoft,
   },
 };
 
 function getBannerTone(tone) {
   const map = {
-    info: { backgroundColor: '#DFECF5', color: palette.inkSoft, borderColor: '#CFE1EE' },
-    success: { backgroundColor: palette.surfaceSuccess, color: palette.success, borderColor: '#D5E8D8' },
-    danger: { backgroundColor: palette.surfaceDanger, color: palette.danger, borderColor: '#F0D1CB' },
+    info: { backgroundColor: '#E8F1FF', color: '#3263B0', borderColor: '#D1E3FF' },
+    success: { backgroundColor: palette.surfaceSuccess, color: palette.success, borderColor: '#CAEAD8' },
+    danger: { backgroundColor: palette.surfaceDanger, color: palette.danger, borderColor: '#F2D7D3' },
   };
 
   return map[tone] || map.info;
 }
 
-export function ScreenSurface({ children, bottomBar = null }) {
+export function ScreenSurface({ children, bottomBar = null, hero = null }) {
   return (
     <View style={styles.screenShell}>
+      <View style={styles.screenHero}>
+        <View style={[styles.heroShape, styles.heroShapeLeft]} />
+        <View style={[styles.heroShape, styles.heroShapeCenter]} />
+        <View style={[styles.heroShape, styles.heroShapeRight]} />
+        {hero ? <View style={styles.heroContent}>{hero}</View> : null}
+      </View>
       <ScrollView
         style={styles.screen}
         contentContainerStyle={[styles.screenContent, bottomBar && styles.screenContentWithBottomBar]}
         showsVerticalScrollIndicator={false}
+        bounces={false}
       >
         {children}
       </ScrollView>
@@ -164,7 +171,6 @@ export function TabStrip({ tabs, activeTab, onChange }) {
             onPress={() => onChange(tab.value)}
             style={({ pressed }) => [styles.tabCard, isActive && styles.tabCardActive, pressed && styles.pressedScale]}
           >
-            <View style={[styles.tabIndicator, isActive && styles.tabIndicatorActive]} />
             <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
           </Pressable>
         );
@@ -358,10 +364,10 @@ export function ChoiceChips({ options, value, onChange }) {
 export function PrimaryButton({ label, onPress, tone = 'primary', disabled = false, compact = false }) {
   const tones = {
     primary: { backgroundColor: palette.accent, color: palette.white, borderColor: palette.accent },
-    secondary: { backgroundColor: palette.surface, color: palette.ink, borderColor: palette.border },
+    secondary: { backgroundColor: palette.surface, color: palette.ink, borderColor: '#CBE8E1' },
     dark: { backgroundColor: palette.black, color: palette.white, borderColor: palette.black },
-    ghost: { backgroundColor: 'transparent', color: palette.ink, borderColor: 'transparent' },
-    danger: { backgroundColor: palette.surfaceDanger, color: palette.danger, borderColor: '#F0D1CB' },
+    ghost: { backgroundColor: 'transparent', color: palette.accentDeep, borderColor: 'transparent' },
+    danger: { backgroundColor: palette.surfaceDanger, color: palette.danger, borderColor: '#F2D7D3' },
   };
   const colors = tones[tone] || tones.primary;
 
@@ -442,65 +448,95 @@ export function QrCard({ value, subtitle }) {
 const styles = StyleSheet.create({
   screenShell: {
     flex: 1,
-    backgroundColor: palette.background,
+    backgroundColor: palette.backgroundWarm,
+    width: '100%',
+    maxWidth: 460,
+    alignSelf: 'center',
+    overflow: 'hidden',
+  },
+  screenHero: {
+    height: 182,
+    backgroundColor: palette.accent,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 34,
+    overflow: 'hidden',
+  },
+  heroShape: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    transform: [{ rotate: '45deg' }],
+  },
+  heroShapeLeft: {
+    left: -12,
+    top: 36,
+  },
+  heroShapeCenter: {
+    left: 148,
+    top: 12,
+  },
+  heroShapeRight: {
+    right: -18,
+    top: 44,
+  },
+  heroContent: {
+    gap: 10,
   },
   screen: {
     flex: 1,
     backgroundColor: palette.background,
+    marginTop: -28,
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
   },
   screenContent: {
-    width: '100%',
-    maxWidth: 1120,
-    alignSelf: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 28,
-    paddingBottom: 56,
-    gap: 20,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 42,
+    gap: 18,
   },
   screenContentWithBottomBar: {
-    paddingBottom: 140,
+    paddingBottom: 120,
   },
   bottomBarWrap: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    bottom: 18,
+    paddingHorizontal: 18,
+    paddingTop: 0,
     paddingBottom: 18,
     alignItems: 'center',
   },
   headerWrap: {
-    gap: 14,
+    gap: 8,
   },
   headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     gap: 12,
-    flexWrap: 'wrap',
   },
   headerCopy: {
-    gap: 6,
-    maxWidth: 720,
+    gap: 8,
   },
   eyebrow: {
-    color: palette.muted,
+    color: '#DFFBF6',
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   heroTitle: {
-    color: palette.ink,
+    color: palette.white,
     fontSize: 32,
     lineHeight: 38,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   heroSubtitle: {
-    color: palette.muted,
-    fontSize: 15,
-    lineHeight: 24,
+    color: '#D6FFF7',
+    fontSize: 14,
+    lineHeight: 21,
   },
   highlightWrap: {
     flexDirection: 'row',
@@ -511,72 +547,60 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: palette.surface,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: 'rgba(255,255,255,0.18)',
   },
   highlightText: {
-    color: palette.inkSoft,
+    color: palette.white,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   banner: {
-    borderRadius: 20,
-    paddingHorizontal: 16,
+    borderRadius: 18,
+    paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
   },
   bannerText: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '600',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
   },
   tabStrip: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     padding: 8,
     borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.96)',
+    backgroundColor: 'rgba(255,255,255,0.94)',
     borderWidth: 1,
     borderColor: palette.border,
     width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center',
-    shadowColor: '#2B1D12',
+    shadowColor: '#2E5F58',
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.14,
     shadowRadius: 24,
     elevation: 8,
   },
   tabCard: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
   },
   tabCardActive: {
-    backgroundColor: palette.surfaceTint,
-  },
-  tabIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: 'transparent',
-  },
-  tabIndicatorActive: {
     backgroundColor: palette.accent,
   },
   tabLabel: {
-    color: palette.mutedSoft,
-    fontSize: 13,
-    fontWeight: '600',
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: '800',
   },
   tabLabelActive: {
-    color: palette.ink,
+    color: palette.white,
   },
   searchCluster: {
     flexDirection: 'row',
@@ -623,57 +647,53 @@ const styles = StyleSheet.create({
     backgroundColor: palette.border,
   },
   card: {
-    borderRadius: 28,
+    borderRadius: 30,
     padding: 20,
     borderWidth: 1,
     gap: 14,
-    shadowColor: '#2B1D12',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    elevation: 5,
+    shadowColor: '#315A57',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 22,
+    elevation: 4,
   },
   cardHeader: {
     gap: 6,
   },
   cardTitle: {
     fontSize: 22,
-    fontWeight: '700',
+    lineHeight: 28,
+    fontWeight: '800',
     color: palette.ink,
   },
   cardSubtitle: {
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 21,
     color: palette.muted,
   },
   cardBody: {
     gap: 14,
   },
   focusCard: {
-    borderRadius: 28,
+    borderRadius: 30,
     padding: 22,
     borderWidth: 1,
     gap: 10,
-    shadowColor: '#2B1D12',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
-    shadowRadius: 20,
-    elevation: 4,
   },
   focusEyebrow: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   focusTitle: {
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: '700',
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
   },
   focusDescription: {
-    fontSize: 15,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 21,
   },
   focusContent: {
     gap: 10,
@@ -824,7 +844,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   input: {
-    borderRadius: 20,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: palette.border,
     paddingHorizontal: 16,
@@ -834,10 +854,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   inputFocused: {
-    borderColor: '#F7A5B5',
+    borderColor: '#A9ECDD',
     shadowColor: palette.accent,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 10,
   },
   inputMultiline: {
@@ -853,14 +873,14 @@ const styles = StyleSheet.create({
     minWidth: 140,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: palette.border,
     backgroundColor: palette.surface,
     gap: 3,
   },
   choiceChipSelected: {
-    borderColor: '#FFD1DA',
+    borderColor: '#AEEBDD',
     backgroundColor: palette.surfaceTint,
   },
   choiceTitle: {
@@ -880,7 +900,7 @@ const styles = StyleSheet.create({
     color: palette.accentDeep,
   },
   button: {
-    minHeight: 50,
+    minHeight: 54,
     paddingHorizontal: 18,
     paddingVertical: 14,
     borderRadius: 999,
@@ -890,12 +910,12 @@ const styles = StyleSheet.create({
   },
   buttonCompact: {
     minHeight: 44,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 10,
   },
   buttonText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   buttonTextCompact: {
     fontSize: 13,

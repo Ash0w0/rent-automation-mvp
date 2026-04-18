@@ -35,6 +35,12 @@ enum PaymentSubmissionStatus {
   REJECTED
 }
 
+enum MeterReadingStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
 enum ReminderChannel {
   IN_APP
   WHATSAPP
@@ -136,6 +142,7 @@ model Tenant {
   profileStatus     String
   tenancies         Tenancy[]
   invoices          Invoice[]
+  meterReadings     MeterReading[]
   paymentSubmissions PaymentSubmission[]
   reminders         Reminder[]
 
@@ -177,6 +184,7 @@ model Tenancy {
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   contract      Contract?
   invoices      Invoice[]
+  meterReadings MeterReading[]
 
   @@index([propertyId, status])
   @@index([roomId, status])
@@ -208,6 +216,7 @@ model Invoice {
   tenancy            Tenancy       @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
   tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   room               Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  meterReading       MeterReading?
   paymentSubmissions PaymentSubmission[]
   reminders          Reminder[]
 
@@ -220,17 +229,30 @@ model Invoice {
 model MeterReading {
   id             String    @id
   propertyId     String
+  tenancyId      String?
+  tenantId       String?
   roomId         String
   meterId        String
+  invoiceId      String?   @unique
   month          String
   openingReading Float
   closingReading Float
   tariff         Float
   capturedAt     String
+  status         MeterReadingStatus @default(APPROVED)
+  photoLabel     String?
+  reviewedAt     String?
+  reviewerNote   String             @default("")
+  capturedByRole String             @default("OWNER")
   property       Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenancy        Tenancy?  @relation(fields: [tenancyId], references: [id], onDelete: SetNull)
+  tenant         Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   room           Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
   meter          RoomMeter @relation(fields: [meterId], references: [id], onDelete: Cascade)
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
+  @@index([tenantId, month])
+  @@index([status, month])
   @@index([roomId, month])
   @@map("meter_readings")
 }

@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 import {
+  ActionGrid,
   Banner,
   ChoiceChips,
   EmptyState,
   Field,
+  FocusCard,
   InlineGroup,
   KeyValueRow,
   MetricRow,
@@ -15,21 +17,87 @@ import {
   SectionCard,
   StatusBadge,
   TabStrip,
+  palette,
 } from '../components/ui';
 
 const { formatCurrency, formatDate, formatMonth, toMonthKey } = require('../lib/dateUtils');
 const { deriveInvoiceStatus } = require('../lib/rentEngine');
 
 const ownerTabs = [
-  { label: 'Overview', value: 'overview' },
-  { label: 'Setup', value: 'setup' },
-  { label: 'Tenants', value: 'tenants' },
-  { label: 'Billing', value: 'billing' },
-  { label: 'Reminders', value: 'reminders' },
+  { label: 'Today', value: 'today', meta: 'See what needs action first.' },
+  { label: 'Residents', value: 'residents', meta: 'Fill rooms, start move-ins, manage exits.' },
+  { label: 'Collections', value: 'collections', meta: 'Create bills, review proofs, track reminders.' },
+  { label: 'Property', value: 'property', meta: 'Update PG details, UPI setup, and room inventory.' },
 ];
 
+function createOwnerFocus({ pendingSubmissions, overdueInvoices, invitedTenancies, unbilledTenancies, vacantRooms }) {
+  if (pendingSubmissions.length) {
+    return {
+      eyebrow: 'Today’s priority',
+      title: `Review ${pendingSubmissions.length} payment proof${pendingSubmissions.length > 1 ? 's' : ''}`,
+      description: 'Tenants have already paid. Confirm these first so collections stay current.',
+      tab: 'collections',
+      actionLabel: 'Open collections',
+      tone: 'accent',
+    };
+  }
+
+  if (overdueInvoices.length) {
+    return {
+      eyebrow: 'Today’s priority',
+      title: `Follow up on ${overdueInvoices.length} overdue bill${overdueInvoices.length > 1 ? 's' : ''}`,
+      description: 'Review reminders, check proof status, and keep overdue rent from slipping further.',
+      tab: 'collections',
+      actionLabel: 'View overdue bills',
+      tone: 'forest',
+    };
+  }
+
+  if (invitedTenancies.length) {
+    return {
+      eyebrow: 'Today’s priority',
+      title: `Complete ${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''}`,
+      description: 'Finish the agreement setup so invited tenants become active residents.',
+      tab: 'residents',
+      actionLabel: 'Open residents',
+      tone: 'accent',
+    };
+  }
+
+  if (unbilledTenancies.length) {
+    return {
+      eyebrow: 'Today’s priority',
+      title: `Create ${unbilledTenancies.length} rent bill${unbilledTenancies.length > 1 ? 's' : ''}`,
+      description: 'Some active stays do not yet have a bill for this month.',
+      tab: 'collections',
+      actionLabel: 'Create bills',
+      tone: 'forest',
+    };
+  }
+
+  if (vacantRooms.length) {
+    return {
+      eyebrow: 'Today’s priority',
+      title: `Fill ${vacantRooms.length} available room${vacantRooms.length > 1 ? 's' : ''}`,
+      description: 'Invite the next resident and reserve the room in one step.',
+      tab: 'residents',
+      actionLabel: 'Invite resident',
+      tone: 'soft',
+    };
+  }
+
+  return {
+    eyebrow: 'Operating smoothly',
+    title: 'Your PG is under control',
+    description: 'Rooms, billing, and reminders are up to date. Use the tabs below for any manual changes.',
+    tab: 'property',
+    actionLabel: 'Review property',
+    tone: 'soft',
+  };
+}
+
 export function OwnerWorkspace({ state, actions, onLogout }) {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('today');
   const [feedback, setFeedback] = useState(null);
 
   const [propertyForm, setPropertyForm] = useState({
@@ -81,9 +149,13 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
   const getRoom = (roomId) => state.rooms.find((room) => room.id === roomId);
   const getMeter = (meterId) => state.roomMeters.find((meter) => meter.id === meterId);
 
-  const invoices = [...state.invoices]
-    .map((invoice) => ({ ...invoice, derivedStatus: deriveInvoiceStatus(invoice, state.referenceDate) }))
-    .sort((left, right) => right.month.localeCompare(left.month));
+  const invoices = useMemo(
+    () =>
+      [...state.invoices]
+        .map((invoice) => ({ ...invoice, derivedStatus: deriveInvoiceStatus(invoice, state.referenceDate) }))
+        .sort((left, right) => right.month.localeCompare(left.month)),
+    [state.invoices, state.referenceDate],
+  );
 
   const invitedTenancies = state.tenancies.filter((tenancy) => tenancy.status === 'INVITED');
   const activeTenancies = state.tenancies.filter((tenancy) =>
@@ -92,6 +164,13 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
   const pendingSubmissions = state.paymentSubmissions.filter((submission) => submission.status === 'PENDING_REVIEW');
   const reminderQueue = [...state.reminders].sort((left, right) => left.triggerDate.localeCompare(right.triggerDate));
   const vacantRooms = state.rooms.filter((room) => room.status === 'VACANT');
+  const dueInvoices = invoices.filter((invoice) => invoice.derivedStatus === 'DUE');
+  const overdueInvoices = invoices.filter((invoice) => invoice.derivedStatus === 'OVERDUE');
+  const failedReminders = reminderQueue.filter((reminder) => reminder.deliveryStatus === 'FAILED');
+  const currentMonth = toMonthKey(state.referenceDate);
+  const unbilledTenancies = activeTenancies.filter(
+    (tenancy) => !state.invoices.some((invoice) => invoice.tenancyId === tenancy.id && invoice.month === currentMonth),
+  );
 
   useEffect(() => {
     setPropertyForm({
@@ -145,12 +224,38 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
     }
   }, [activeTenancies, moveOutForm.tenancyId]);
 
+  useEffect(() => {
+    if (!billingForm.tenancyId) {
+      return;
+    }
+
+    const selectedTenancy = activeTenancies.find((tenancy) => tenancy.id === billingForm.tenancyId);
+    const room = selectedTenancy ? getRoom(selectedTenancy.roomId) : null;
+    const meter = room ? getMeter(room.meterId) : null;
+
+    if (meter) {
+      setBillingForm((current) => ({
+        ...current,
+        openingReading: String(meter.lastReading),
+      }));
+    }
+  }, [billingForm.tenancyId, activeTenancies, state.roomMeters]);
+
   const summary = {
     occupiedRooms: state.rooms.filter((room) => room.status === 'OCCUPIED').length,
-    dueInvoices: invoices.filter((invoice) => invoice.derivedStatus === 'DUE').length,
-    overdueInvoices: invoices.filter((invoice) => invoice.derivedStatus === 'OVERDUE').length,
+    availableRooms: vacantRooms.length,
+    dueInvoices: dueInvoices.length,
+    overdueInvoices: overdueInvoices.length,
     pendingApprovals: pendingSubmissions.length,
   };
+
+  const ownerFocus = createOwnerFocus({
+    pendingSubmissions,
+    overdueInvoices,
+    invitedTenancies,
+    unbilledTenancies,
+    vacantRooms,
+  });
 
   const handleAction = async (callback, successMessage) => {
     try {
@@ -162,115 +267,169 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
     }
   };
 
-  const renderOverview = () => (
+  const renderRoomSnapshot = () => (
+    <View style={styles.grid}>
+      {state.rooms.map((room) => {
+        const tenancy = state.tenancies.find(
+          (record) =>
+            record.roomId === room.id &&
+            ['ACTIVE', 'MOVE_OUT_SCHEDULED', 'INVITED'].includes(record.status),
+        );
+        const tenant = tenancy ? getTenant(tenancy.tenantId) : null;
+        const meter = getMeter(room.meterId);
+
+        return (
+          <View key={room.id} style={styles.infoTile}>
+            <InlineGroup>
+              <Text style={styles.tileTitle}>Room {room.label}</Text>
+              <StatusBadge label={room.status} />
+            </InlineGroup>
+            <KeyValueRow label="Occupant" value={tenant ? tenant.fullName : 'Available'} />
+            <KeyValueRow label="Floor" value={room.floor} />
+            <KeyValueRow label="Meter" value={`${meter?.serialNumber || '-'} | ${meter?.lastReading ?? '-'}`} />
+          </View>
+        );
+      })}
+    </View>
+  );
+
+  const renderToday = () => (
     <>
-      <SectionCard title="Portfolio snapshot" subtitle="Single-property UI with a multi-property-ready data model underneath.">
+      <FocusCard
+        eyebrow={ownerFocus.eyebrow}
+        title={ownerFocus.title}
+        description={ownerFocus.description}
+        tone={ownerFocus.tone}
+        actionLabel={ownerFocus.actionLabel}
+        onAction={() => setActiveTab(ownerFocus.tab)}
+      />
+
+      <SectionCard title="Operating snapshot" subtitle="The numbers below tell you what deserves attention right now." tone="soft">
         <MetricRow
           items={[
             { label: 'Occupied rooms', value: summary.occupiedRooms },
-            { label: 'Invoices due', value: summary.dueInvoices },
-            { label: 'Overdue invoices', value: summary.overdueInvoices },
-            { label: 'Payments to review', value: summary.pendingApprovals },
+            { label: 'Available rooms', value: summary.availableRooms },
+            { label: 'Due now', value: summary.dueInvoices },
+            { label: 'Proofs to review', value: summary.pendingApprovals },
           ]}
         />
         <KeyValueRow label="Property" value={state.property.name} />
         <KeyValueRow label="Manager" value={`${state.property.managerName} | ${state.property.managerPhone}`} />
-        <KeyValueRow label="UPI settlement" value={state.settlementAccount.upiId} />
+        <KeyValueRow label="Collection UPI" value={state.settlementAccount.upiId} />
       </SectionCard>
 
-      <SectionCard title="Rooms and occupancy" subtitle="Room status shows available, occupied, or on notice.">
-        {state.rooms.map((room) => {
-          const tenancy = state.tenancies.find(
-            (record) =>
-              record.roomId === room.id &&
-              ['ACTIVE', 'MOVE_OUT_SCHEDULED', 'INVITED'].includes(record.status),
-          );
-          const tenant = tenancy ? getTenant(tenancy.tenantId) : null;
-          const meter = getMeter(room.meterId);
-
-          return (
-            <View key={room.id} style={{ gap: 10, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#efe5d5' }}>
-              <InlineGroup>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: '#19231f' }}>Room {room.label}</Text>
-                <StatusBadge label={room.status} />
-              </InlineGroup>
-              <KeyValueRow label="Floor" value={room.floor} />
-              <KeyValueRow label="Meter" value={`${meter.serialNumber} | last ${meter.lastReading}`} />
-              <KeyValueRow label="Occupant" value={tenant ? tenant.fullName : 'Vacant'} />
-            </View>
-          );
-        })}
+      <SectionCard title="Go where the work is" subtitle="These are the landlord journeys in the app.">
+        <ActionGrid
+          items={[
+            {
+              eyebrow: `${vacantRooms.length} available`,
+              title: 'Fill rooms',
+              description: 'Invite a tenant, reserve a room, and start onboarding.',
+              label: 'Open residents',
+              onPress: () => setActiveTab('residents'),
+            },
+            {
+              eyebrow: `${invitedTenancies.length} waiting`,
+              title: 'Complete move-ins',
+              description: 'Activate tenancies after profile and agreement details are ready.',
+              label: 'Start tenancies',
+              onPress: () => setActiveTab('residents'),
+              tone: 'accent',
+            },
+            {
+              eyebrow: `${unbilledTenancies.length} unbilled`,
+              title: 'Issue bills',
+              description: 'Create this month’s rent bills with the correct meter snapshot.',
+              label: 'Open collections',
+              onPress: () => setActiveTab('collections'),
+              tone: 'forest',
+            },
+            {
+              eyebrow: `${pendingSubmissions.length} pending`,
+              title: 'Review proof',
+              description: 'Approve or reject payment proof so rent status stays accurate.',
+              label: 'Check submissions',
+              onPress: () => setActiveTab('collections'),
+            },
+          ]}
+        />
       </SectionCard>
 
-      <SectionCard title="Live operations" subtitle="Quick summary of payment proofs still waiting for review.">
-        {pendingSubmissions.length ? (
-          pendingSubmissions.map((submission) => {
-            const invoice = state.invoices.find((record) => record.id === submission.invoiceId);
-            const tenant = getTenant(submission.tenantId);
-            const room = getRoom(invoice.roomId);
-
-            return (
-              <View key={submission.id} style={{ gap: 8, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#efe5d5' }}>
-                <InlineGroup>
-                  <Text style={{ fontWeight: '800', color: '#19231f' }}>{tenant.fullName}</Text>
-                  <StatusBadge label={submission.status} />
-                </InlineGroup>
-                <Text style={{ color: '#66756d' }}>
-                  Room {room.label} | {formatMonth(invoice.month)} | {formatCurrency(invoice.totalAmount)}
-                </Text>
-              </View>
-            );
-          })
-        ) : (
-          <EmptyState title="No payment proofs are waiting" description="As tenants submit UTRs and screenshots, they will show up here for approval." />
-        )}
+      <SectionCard title="What could slip next" subtitle="Use this to catch bottlenecks before they become follow-up work." tone="accent">
+        <View style={styles.stack}>
+          <View style={styles.calloutRow}>
+            <Text style={styles.calloutTitle}>Overdue bills</Text>
+            <Text style={styles.calloutValue}>{overdueInvoices.length}</Text>
+          </View>
+          <View style={styles.calloutRow}>
+            <Text style={styles.calloutTitle}>Failed reminders</Text>
+            <Text style={styles.calloutValue}>{failedReminders.length}</Text>
+          </View>
+          <View style={styles.calloutRow}>
+            <Text style={styles.calloutTitle}>Move-outs in progress</Text>
+            <Text style={styles.calloutValue}>
+              {activeTenancies.filter((tenancy) => tenancy.status === 'MOVE_OUT_SCHEDULED').length}
+            </Text>
+          </View>
+        </View>
       </SectionCard>
     </>
   );
 
   const renderSetup = () => (
     <>
-      <SectionCard title="Property setup" subtitle="Owner-facing property and default billing details.">
+      <FocusCard
+        eyebrow="Property setup"
+        title="Keep setup data separate from daily operations"
+        description="This tab is for PG details, collection settings, and room inventory. Daily resident and billing work happens in the other flows."
+        tone="soft"
+      />
+
+      <SectionCard title="Property basics" subtitle="Update the PG details used across the app." tone="soft">
         <Field label="Property name" value={propertyForm.name} onChangeText={(value) => setPropertyForm((current) => ({ ...current, name: value }))} />
         <Field label="Address" value={propertyForm.address} onChangeText={(value) => setPropertyForm((current) => ({ ...current, address: value }))} multiline />
         <Field label="Manager name" value={propertyForm.managerName} onChangeText={(value) => setPropertyForm((current) => ({ ...current, managerName: value }))} />
         <Field label="Manager phone" value={propertyForm.managerPhone} onChangeText={(value) => setPropertyForm((current) => ({ ...current, managerPhone: value }))} keyboardType="phone-pad" />
-        <Field label="Default tariff" value={propertyForm.defaultTariff} onChangeText={(value) => setPropertyForm((current) => ({ ...current, defaultTariff: value }))} keyboardType="decimal-pad" />
+        <Field label="Default electricity rate" value={propertyForm.defaultTariff} onChangeText={(value) => setPropertyForm((current) => ({ ...current, defaultTariff: value }))} keyboardType="decimal-pad" />
         <PrimaryButton
-          label="Save property details"
+          label="Save property"
           onPress={() =>
             handleAction(
               () => actions.updateProperty({ ...propertyForm, defaultTariff: Number(propertyForm.defaultTariff) }),
-              'Property details updated.',
+              'Property details saved.',
             )
           }
         />
       </SectionCard>
 
-      <SectionCard title="Settlement account" subtitle="Used for every UPI link and QR on invoices.">
+      <SectionCard title="Rent collection account" subtitle="These details power every tenant UPI link and QR code." tone="accent">
         <Field label="Payee name" value={settlementForm.payeeName} onChangeText={(value) => setSettlementForm((current) => ({ ...current, payeeName: value }))} />
         <Field label="UPI ID" value={settlementForm.upiId} onChangeText={(value) => setSettlementForm((current) => ({ ...current, upiId: value }))} />
-        <Field label="Payment instructions" value={settlementForm.instructions} onChangeText={(value) => setSettlementForm((current) => ({ ...current, instructions: value }))} multiline />
+        <Field label="Note for tenants" value={settlementForm.instructions} onChangeText={(value) => setSettlementForm((current) => ({ ...current, instructions: value }))} multiline />
         <PrimaryButton
-          label="Save settlement account"
-          onPress={() => handleAction(() => actions.updateSettlement(settlementForm), 'UPI settlement details updated.')}
+          label="Save collection account"
+          onPress={() => handleAction(() => actions.updateSettlement(settlementForm), 'Collection details saved.')}
         />
       </SectionCard>
 
-      <SectionCard title="Add a room and meter" subtitle="Every room has a meter so monthly electricity can be billed from snapshots.">
-        <Field label="Room label" value={roomForm.label} onChangeText={(value) => setRoomForm((current) => ({ ...current, label: value }))} placeholder="303" />
+      <SectionCard title="Room inventory" subtitle="See the current rooms and meters before adding a new one." tone="forest">
+        {renderRoomSnapshot()}
+      </SectionCard>
+
+      <SectionCard title="Add room and meter" subtitle="Use this when you want to expand the inventory." tone="soft">
+        <Field label="Room number" value={roomForm.label} onChangeText={(value) => setRoomForm((current) => ({ ...current, label: value }))} placeholder="303" />
         <Field label="Floor" value={roomForm.floor} onChangeText={(value) => setRoomForm((current) => ({ ...current, floor: value }))} placeholder="3" />
         <Field label="Meter serial number" value={roomForm.serialNumber} onChangeText={(value) => setRoomForm((current) => ({ ...current, serialNumber: value }))} placeholder="LT-303-C" />
-        <Field label="Opening reading" value={roomForm.openingReading} onChangeText={(value) => setRoomForm((current) => ({ ...current, openingReading: value }))} keyboardType="numeric" />
+        <Field label="Meter opening reading" value={roomForm.openingReading} onChangeText={(value) => setRoomForm((current) => ({ ...current, openingReading: value }))} keyboardType="numeric" />
         <PrimaryButton
-          label="Create room"
+          label="Add room"
           onPress={() =>
             handleAction(
               async () => {
                 await actions.addRoom(roomForm);
                 setRoomForm({ label: '', floor: '', serialNumber: '', openingReading: '0' });
               },
-              'New room and meter created.',
+              'Room and meter added.',
             )
           }
         />
@@ -280,29 +439,42 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
 
   const renderTenants = () => (
     <>
-      <SectionCard title="Invite a tenant" subtitle="Reserve a room first; the tenant completes profile details in the portal.">
-        <Field label="Tenant full name" value={inviteForm.fullName} onChangeText={(value) => setInviteForm((current) => ({ ...current, fullName: value }))} />
-        <Field label="Phone number" value={inviteForm.phone} onChangeText={(value) => setInviteForm((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" />
-        <ChoiceChips
-          value={inviteForm.roomId}
-          onChange={(value) => setInviteForm((current) => ({ ...current, roomId: value }))}
-          options={vacantRooms.map((room) => ({ value: room.id, label: `Room ${room.label}`, meta: `Floor ${room.floor}` }))}
-        />
-        <PrimaryButton
-          label="Send tenant invite"
-          onPress={() =>
-            handleAction(
-              async () => {
-                await actions.inviteTenant(inviteForm);
-                setInviteForm({ fullName: '', phone: '', roomId: vacantRooms[0]?.id || '' });
-              },
-              'Tenant invited and room reserved for onboarding.',
-            )
-          }
-        />
+      <FocusCard
+        eyebrow="Resident journey"
+        title="Fill rooms, start stays, and handle exits without jumping around"
+        description="Everything related to the resident lifecycle lives here: invite, activate move-in, track current rooms, and close move-outs."
+        tone="forest"
+      />
+
+      <SectionCard title="Step 1: Invite a resident" subtitle="Reserve an available room and send the tenant into onboarding." tone="soft">
+        {vacantRooms.length ? (
+          <>
+            <Field label="Tenant name" value={inviteForm.fullName} onChangeText={(value) => setInviteForm((current) => ({ ...current, fullName: value }))} />
+            <Field label="Tenant mobile number" value={inviteForm.phone} onChangeText={(value) => setInviteForm((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" />
+            <ChoiceChips
+              value={inviteForm.roomId}
+              onChange={(value) => setInviteForm((current) => ({ ...current, roomId: value }))}
+              options={vacantRooms.map((room) => ({ value: room.id, label: `Room ${room.label}`, meta: `Floor ${room.floor}` }))}
+            />
+            <PrimaryButton
+              label="Invite tenant"
+              onPress={() =>
+                handleAction(
+                  async () => {
+                    await actions.inviteTenant(inviteForm);
+                    setInviteForm({ fullName: '', phone: '', roomId: '' });
+                  },
+                  'Tenant invited. The room is now reserved for onboarding.',
+                )
+              }
+            />
+          </>
+        ) : (
+          <EmptyState title="No room is available right now" description="Once a room opens up, you can invite the next resident from here." />
+        )}
       </SectionCard>
 
-      <SectionCard title="Activate invited tenancy" subtitle="Owner records rent, deposit, dates, and the uploaded PDF file name.">
+      <SectionCard title="Step 2: Activate the move-in" subtitle="Turn an invited resident into an active tenancy after the agreement is ready." tone="accent">
         {invitedTenancies.length ? (
           <>
             <ChoiceChips
@@ -314,7 +486,7 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
                 meta: `Room ${getRoom(tenancy.roomId)?.label}`,
               }))}
             />
-            <Field label="Contract PDF file name" value={contractForm.fileName} onChangeText={(value) => setContractForm((current) => ({ ...current, fileName: value }))} placeholder="lease-priya-nair.pdf" />
+            <Field label="Agreement file name" value={contractForm.fileName} onChangeText={(value) => setContractForm((current) => ({ ...current, fileName: value }))} placeholder="lease-priya-nair.pdf" />
             <Field label="Monthly rent" value={contractForm.rentAmount} onChangeText={(value) => setContractForm((current) => ({ ...current, rentAmount: value }))} keyboardType="numeric" />
             <Field label="Deposit amount" value={contractForm.depositAmount} onChangeText={(value) => setContractForm((current) => ({ ...current, depositAmount: value }))} keyboardType="numeric" />
             <Field label="Due day" value={contractForm.dueDay} onChangeText={(value) => setContractForm((current) => ({ ...current, dueDay: value }))} keyboardType="numeric" />
@@ -322,16 +494,20 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
             <Field label="Contract start" value={contractForm.contractStart} onChangeText={(value) => setContractForm((current) => ({ ...current, contractStart: value }))} placeholder="YYYY-MM-DD" />
             <Field label="Contract end" value={contractForm.contractEnd} onChangeText={(value) => setContractForm((current) => ({ ...current, contractEnd: value }))} placeholder="YYYY-MM-DD" />
             <PrimaryButton
-              label="Activate tenancy"
-              onPress={() => handleAction(() => actions.activateTenancy(contractForm), 'Contract captured and tenancy moved to active.')}
+              label="Start tenancy"
+              onPress={() => handleAction(() => actions.activateTenancy(contractForm), 'Agreement saved and tenancy is now active.')}
             />
           </>
         ) : (
-          <EmptyState title="No invited tenancies" description="Invite a tenant and wait for profile completion to activate the contract." />
+          <EmptyState title="No move-ins are waiting" description="Invited residents will show up here after they have been assigned to a room." />
         )}
       </SectionCard>
 
-      <SectionCard title="Tenant lifecycle" subtitle="Move-out is basic in MVP: schedule the exit, collect the final bill, then close the tenancy and free the room.">
+      <SectionCard title="Current residents and room status" subtitle="Use this view when you need a fast picture of who is where." tone="forest">
+        {renderRoomSnapshot()}
+      </SectionCard>
+
+      <SectionCard title="Move-out and turnover" subtitle="Put a room on notice, then complete the move-out when the stay is closed.">
         {activeTenancies.length ? (
           <>
             <ChoiceChips
@@ -345,12 +521,12 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
             />
             <Field label="Move-out date" value={moveOutForm.moveOutDate} onChangeText={(value) => setMoveOutForm((current) => ({ ...current, moveOutDate: value }))} />
             <InlineGroup>
-              <PrimaryButton label="Schedule move-out" onPress={() => handleAction(() => actions.scheduleMoveOut(moveOutForm), 'Move-out scheduled and room placed on notice.')} />
-              <PrimaryButton label="Close tenancy" tone="ghost" onPress={() => handleAction(() => actions.closeTenancy(moveOutForm.tenancyId), 'Tenancy closed and room returned to vacant inventory.')} />
+              <PrimaryButton label="Schedule move-out" onPress={() => handleAction(() => actions.scheduleMoveOut(moveOutForm), 'Move-out scheduled. The room is now on notice.')} />
+              <PrimaryButton label="Complete move-out" tone="ghost" onPress={() => handleAction(() => actions.closeTenancy(moveOutForm.tenancyId), 'Tenancy closed. The room is available again.')} />
             </InlineGroup>
           </>
         ) : (
-          <EmptyState title="No active tenants" description="Once a contract is activated, tenant lifecycle actions will appear here." />
+          <EmptyState title="No active stays yet" description="Once you activate a move-in, resident exits can also be managed here." />
         )}
       </SectionCard>
     </>
@@ -358,7 +534,14 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
 
   const renderBilling = () => (
     <>
-      <SectionCard title="Generate monthly invoice" subtitle="Each invoice stores a rent and meter snapshot, so later edits do not rewrite history.">
+      <FocusCard
+        eyebrow="Collections flow"
+        title="Issue bills, confirm payments, and keep reminders moving"
+        description="This is the landlord’s money workflow: create monthly bills, approve submitted proof, and track reminder delivery."
+        tone="accent"
+      />
+
+      <SectionCard title="Step 1: Create a monthly rent bill" subtitle="Create the bill with the exact meter snapshot for that month." tone="soft">
         {activeTenancies.length ? (
           <>
             <ChoiceChips
@@ -370,12 +553,12 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
                 meta: `Room ${getRoom(tenancy.roomId)?.label}`,
               }))}
             />
-            <Field label="Billing month" value={billingForm.month} onChangeText={(value) => setBillingForm((current) => ({ ...current, month: value }))} placeholder="YYYY-MM" />
+            <Field label="Billing month (YYYY-MM)" value={billingForm.month} onChangeText={(value) => setBillingForm((current) => ({ ...current, month: value }))} placeholder="YYYY-MM" />
             <Field label="Opening reading" value={billingForm.openingReading} onChangeText={(value) => setBillingForm((current) => ({ ...current, openingReading: value }))} keyboardType="numeric" />
             <Field label="Closing reading" value={billingForm.closingReading} onChangeText={(value) => setBillingForm((current) => ({ ...current, closingReading: value }))} keyboardType="numeric" />
-            <Field label="Tariff per unit" value={billingForm.tariff} onChangeText={(value) => setBillingForm((current) => ({ ...current, tariff: value }))} keyboardType="decimal-pad" />
+            <Field label="Electricity rate per unit" value={billingForm.tariff} onChangeText={(value) => setBillingForm((current) => ({ ...current, tariff: value }))} keyboardType="decimal-pad" />
             <PrimaryButton
-              label="Generate invoice"
+              label="Create invoice"
               onPress={() =>
                 handleAction(
                   () =>
@@ -385,17 +568,17 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
                       closingReading: Number(billingForm.closingReading),
                       tariff: Number(billingForm.tariff),
                     }),
-                  'Invoice created with reminder schedule.',
+                  'Rent bill created and reminders scheduled.',
                 )
               }
             />
           </>
         ) : (
-          <EmptyState title="No active tenancy to bill" description="Activate a contract first to generate invoices." />
+          <EmptyState title="No active tenancy to bill yet" description="Finish a move-in first, then monthly billing will happen here." />
         )}
       </SectionCard>
 
-      <SectionCard title="Payment approvals" subtitle="Tenants pay through UPI and submit proof; owners approve or reject after checking the bank record.">
+      <SectionCard title="Step 2: Review payment proofs" subtitle="Approve proof to mark the bill collected, or reject it to reopen the due bill." tone="accent">
         {pendingSubmissions.length ? (
           pendingSubmissions.map((submission) => {
             const invoice = state.invoices.find((record) => record.id === submission.invoiceId);
@@ -414,18 +597,18 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
                 <KeyValueRow label="UTR" value={submission.utr} />
                 <KeyValueRow label="Proof" value={submission.screenshotLabel} />
                 <InlineGroup>
-                  <PrimaryButton label="Approve" onPress={() => handleAction(() => actions.reviewPayment({ submissionId: submission.id, decision: 'APPROVE' }), 'Payment approved and invoice marked paid.')} />
-                  <PrimaryButton label="Reject" tone="danger" onPress={() => handleAction(() => actions.reviewPayment({ submissionId: submission.id, decision: 'REJECT' }), 'Payment proof rejected and invoice reopened.')} />
+                  <PrimaryButton label="Approve payment" onPress={() => handleAction(() => actions.reviewPayment({ submissionId: submission.id, decision: 'APPROVE' }), 'Payment approved and marked as collected.')} />
+                  <PrimaryButton label="Reject proof" tone="danger" onPress={() => handleAction(() => actions.reviewPayment({ submissionId: submission.id, decision: 'REJECT' }), 'Proof rejected and the bill moved back to due.')} />
                 </InlineGroup>
               </View>
             );
           })
         ) : (
-          <EmptyState title="No pending payment proofs" description="Once tenants submit UTRs and screenshots, they can be reviewed here." />
+          <EmptyState title="No proof is waiting for review" description="New tenant payment submissions will appear here." />
         )}
       </SectionCard>
 
-      <SectionCard title="Invoice ledger" subtitle="Owner-facing ledger across active and historical invoices.">
+      <SectionCard title="Bills and follow-ups" subtitle="Use this list to keep track of due, overdue, and paid rent in one place.">
         {invoices.map((invoice) => {
           const tenant = getTenant(invoice.tenantId);
           const room = getRoom(invoice.roomId);
@@ -445,63 +628,64 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
           );
         })}
       </SectionCard>
-    </>
-  );
 
-  const renderReminders = () => (
-    <SectionCard title="Reminder delivery tracking" subtitle="Fixed WhatsApp and in-app cadence: three days before due, due day, and three days overdue.">
-      {reminderQueue.length ? (
-        reminderQueue.map((reminder) => {
-          const invoice = state.invoices.find((record) => record.id === reminder.invoiceId);
-          const tenant = getTenant(reminder.tenantId);
-          return (
-            <View key={reminder.id} style={{ gap: 10, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#efe5d5' }}>
-              <InlineGroup>
-                <Text style={{ fontWeight: '800', color: '#19231f' }}>{tenant.fullName}</Text>
-                <StatusBadge label={reminder.deliveryStatus} />
-                <StatusBadge label={reminder.channel} />
-              </InlineGroup>
-              <Text style={{ color: '#66756d' }}>
-                {reminder.title} | {formatDate(reminder.triggerDate)} | {formatCurrency(invoice.totalAmount)}
-              </Text>
-              <InlineGroup>
-                <PrimaryButton label="Mark sent" tone="ghost" onPress={() => handleAction(() => actions.updateReminderStatus(reminder.id, 'SENT'), 'Reminder marked sent.')} />
-                <PrimaryButton label="Mark failed" tone="danger" onPress={() => handleAction(() => actions.updateReminderStatus(reminder.id, 'FAILED'), 'Reminder marked failed.')} />
-              </InlineGroup>
-            </View>
-          );
-        })
-      ) : (
-        <EmptyState title="No reminders yet" description="Generate an invoice to create due-date reminders." />
-      )}
-    </SectionCard>
+      <SectionCard title="Reminder tracker" subtitle="Track the fixed WhatsApp and in-app follow-up schedule tied to each bill." tone="forest">
+        {reminderQueue.length ? (
+          reminderQueue.map((reminder) => {
+            const invoice = state.invoices.find((record) => record.id === reminder.invoiceId);
+            const tenant = getTenant(reminder.tenantId);
+            return (
+              <View key={reminder.id} style={{ gap: 10, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#efe5d5' }}>
+                <InlineGroup>
+                  <Text style={{ fontWeight: '800', color: '#19231f' }}>{tenant.fullName}</Text>
+                  <StatusBadge label={reminder.deliveryStatus} />
+                  <StatusBadge label={reminder.channel} />
+                </InlineGroup>
+                <Text style={{ color: '#66756d' }}>
+                  {reminder.title} | {formatDate(reminder.triggerDate)} | {formatCurrency(invoice.totalAmount)}
+                </Text>
+                <InlineGroup>
+                  <PrimaryButton label="Mark sent" tone="ghost" onPress={() => handleAction(() => actions.updateReminderStatus(reminder.id, 'SENT'), 'Reminder marked as sent.')} />
+                  <PrimaryButton label="Mark failed" tone="danger" onPress={() => handleAction(() => actions.updateReminderStatus(reminder.id, 'FAILED'), 'Reminder marked as failed.')} />
+                </InlineGroup>
+              </View>
+            );
+          })
+        ) : (
+          <EmptyState title="No reminders yet" description="Create a rent bill to schedule the reminder flow." />
+        )}
+      </SectionCard>
+    </>
   );
 
   const renderCurrentTab = () => {
     switch (activeTab) {
-      case 'setup':
+      case 'property':
         return renderSetup();
-      case 'tenants':
+      case 'residents':
         return renderTenants();
-      case 'billing':
+      case 'collections':
         return renderBilling();
-      case 'reminders':
-        return renderReminders();
       default:
-        return renderOverview();
+        return renderToday();
     }
   };
 
   return (
     <ScreenSurface>
       <PageHeader
-        eyebrow="Owner portal"
-        title="Run your PG from one control room"
-        subtitle="Track rooms, contracts, meter snapshots, UPI collections, payment proof approvals, reminders, and move-outs without splitting the workflow across tools."
+        eyebrow="Landlord workspace"
+        title="Run the PG by task, not by spreadsheet"
+        subtitle="Move through the landlord flow in a natural order: today’s priorities, residents, collections, and finally setup."
+        highlights={[
+          `${summary.availableRooms} available room${summary.availableRooms === 1 ? '' : 's'}`,
+          `${summary.pendingApprovals} proof${summary.pendingApprovals === 1 ? '' : 's'} to review`,
+          `${summary.overdueInvoices} overdue bill${summary.overdueInvoices === 1 ? '' : 's'}`,
+        ]}
         actionLabel="Log out"
         onAction={onLogout}
       />
-      {state.isSyncing ? <Banner tone="info" message="Syncing the owner portal with the backend..." /> : null}
+      {state.isSyncing ? <Banner tone="info" message="Updating the landlord workspace..." /> : null}
       {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
       {feedback ? <Banner tone={feedback.tone} message={feedback.text} /> : null}
       <TabStrip tabs={ownerTabs} activeTab={activeTab} onChange={setActiveTab} />
@@ -509,3 +693,47 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
     </ScreenSurface>
   );
 }
+
+const styles = StyleSheet.create({
+  stack: {
+    gap: 12,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  infoTile: {
+    width: '48%',
+    minWidth: 150,
+    padding: 14,
+    borderRadius: 22,
+    backgroundColor: palette.paper,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 10,
+  },
+  tileTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: palette.ink,
+  },
+  calloutRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  calloutTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: palette.ink,
+  },
+  calloutValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: palette.accent,
+  },
+});

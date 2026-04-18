@@ -4,7 +4,6 @@ const {
   PAYMENT_SUBMISSION_STATUS,
   ROOM_STATUS,
   TENANCY_STATUS,
-  buildReminderSchedule,
   createInvoiceForTenancy,
 } = require('../lib/rentEngine');
 
@@ -48,7 +47,7 @@ function createSeedState() {
       propertyId: property.id,
       roomId: 'room-202',
       serialNumber: 'LT-202-B',
-      lastReading: 487,
+      lastReading: 449,
     },
     {
       id: 'meter-303',
@@ -175,17 +174,6 @@ function createSeedState() {
   marchBundle.invoice.paidAt = '2026-03-04';
   marchBundle.invoice.paymentSubmissionId = 'submission-1';
 
-  const aprilBundle = createInvoiceForTenancy({
-    tenancy: activeTenancy,
-    room: occupiedRoom,
-    settlementAccount,
-    month: '2026-04',
-    openingReading: 450,
-    closingReading: 487,
-    tariff: 8.5,
-    referenceDate: '2026-04-01',
-  });
-
   const paymentSubmissions = [
     {
       id: 'submission-1',
@@ -200,7 +188,7 @@ function createSeedState() {
     },
   ];
 
-  const reminders = buildReminderSchedule(aprilBundle.invoice, today);
+  const reminders = [];
 
   return {
     referenceDate: today,
@@ -218,15 +206,15 @@ function createSeedState() {
     tenants,
     tenancies,
     contracts,
-    invoices: [marchBundle.invoice, aprilBundle.invoice],
-    meterReadings: [marchBundle.meterReading, aprilBundle.meterReading],
+    invoices: [marchBundle.invoice],
+    meterReadings: [marchBundle.meterReading],
     paymentSubmissions,
     reminders,
     auditTrail: [
       {
         id: 'audit-1',
-        title: 'April invoice generated',
-        detail: 'Room 202 invoice issued with electricity snapshot.',
+        title: 'March invoice collected',
+        detail: 'Room 202 invoice was approved after payment proof review.',
       },
       {
         id: 'audit-2',

@@ -1,12 +1,14 @@
 const { getTodayIso } = require('../src/lib/dateUtils');
 const {
   INVOICE_STATUS,
+  METER_READING_STATUS,
   PAYMENT_SUBMISSION_STATUS,
   ROOM_STATUS,
   TENANCY_STATUS,
   buildContractRecord,
   cancelInvoiceReminders,
   createInvoiceForTenancy,
+  createMeterReadingSubmission,
   createTenantInvite,
   deriveInvoiceStatus,
   isTenantProfileComplete,
@@ -14,6 +16,7 @@ const {
 } = require('../src/lib/rentEngine');
 const { createPrismaClient } = require('./prisma');
 const { seedDatabase } = require('./seed');
+const { saveImageUpload } = require('./uploads');
 
 const emptySession = {
   role: null,
@@ -487,6 +490,19 @@ function createRentBackend(options = {}) {
           throw new Error('Billing month is required.');
         }
 
+        const pendingReading = await prisma.meterReading.findFirst({
+          where: {
+            tenancyId: tenancy.id,
+            month: input.month,
+            status: METER_READING_STATUS.PENDING_REVIEW,
+          },
+          select: { id: true },
+        });
+
+        if (pendingReading) {
+          throw new Error('You must review the submitted meter reading before creating a manual invoice.');
+        }
+
         const existingInvoice = await prisma.invoice.findFirst({
           where: {
             tenancyId: tenancy.id,
@@ -560,6 +576,221 @@ function createRentBackend(options = {}) {
       });
     },
 
+    async submitMeterReading(input) {
+      return run(async () => {
+        const tenancy = requireRecord(
+          await prisma.tenancy.findUnique({ where: { id: input.tenancyId } }),
+          'Choose an active stay before submitting a meter reading.',
+        );
+
+        if (![TENANCY_STATUS.ACTIVE, TENANCY_STATUS.MOVE_OUT_SCHEDULED].includes(tenancy.status)) {
+          throw new Error('Only active or moving-out stays can submit a meter reading.');
+        }
+
+        const month = input.month || getTodayIso().slice(0, 7);
+        const [property, room, meter, settlementAccount] = await Promise.all([
+          prisma.property.findFirst(),
+          prisma.room.findUnique({ where: { id: tenancy.roomId } }),
+          prisma.roomMeter.findUnique({ where: { roomId: tenancy.roomId } }),
+          prisma.settlementAccount.findFirst(),
+        ]);
+
+        const resolvedProperty = requireRecord(property, 'Property not found.');
+        const resolvedRoom = requireRecord(room, 'Room not found.');
+        const resolvedMeter = requireRecord(meter, 'Room meter not found.');
+        const resolvedSettlement = requireRecord(settlementAccount, 'Settlement account not found.');
+
+        if (!input.photoUpload?.dataUrl) {
+          throw new Error('Meter photo is required before submitting.');
+        }
+
+        const existingInvoice = await prisma.invoice.findFirst({
+          where: {
+            tenancyId: tenancy.id,
+            month,
+          },
+          select: { id: true },
+        });
+
+        if (existingInvoice) {
+          throw new Error('This month already has a submitted bill.');
+        }
+
+        const existingReading = await prisma.meterReading.findFirst({
+          where: {
+            tenancyId: tenancy.id,
+            month,
+          },
+          select: { id: true },
+        });
+
+        if (existingReading) {
+          throw new Error('This month already has a meter reading on record.');
+        }
+
+        const uploadedMeterPhoto = saveImageUpload('meter', input.photoUpload);
+        const bundle = createInvoiceForTenancy({
+          tenancy,
+          room: resolvedRoom,
+          settlementAccount: resolvedSettlement,
+          month,
+          openingReading: resolvedMeter.lastReading,
+          closingReading: Number(input.closingReading),
+          tariff: resolvedProperty.defaultTariff,
+          photoLabel: uploadedMeterPhoto,
+          status: METER_READING_STATUS.PENDING_REVIEW,
+          capturedByRole: 'TENANT',
+          reviewedAt: null,
+          referenceDate: getTodayIso(),
+        });
+
+        await prisma.$transaction(async (tx) => {
+          await tx.invoice.create({
+            data: {
+              ...bundle.invoice,
+              paymentSubmissionId: null,
+              paidAt: null,
+            },
+          });
+
+          await tx.meterReading.create({
+            data: bundle.meterReading,
+          });
+
+          await tx.reminder.createMany({
+            data: bundle.reminders.map((reminder) => ({
+              ...reminder,
+              lastAttemptAt: reminder.lastAttemptAt || null,
+            })),
+          });
+
+          await recordAudit(
+            tx,
+            'Meter reading submitted',
+            `Tenant submitted the ${month} reading and the bill was created for room ${resolvedRoom.label}.`,
+          );
+        });
+
+        return getState(prisma);
+      });
+    },
+
+    async reviewMeterReading(input) {
+      return run(async () => {
+        const reading = requireRecord(
+          await prisma.meterReading.findUnique({ where: { id: input.meterReadingId } }),
+          'Choose a meter reading waiting for review.',
+        );
+
+        if (reading.status !== METER_READING_STATUS.PENDING_REVIEW) {
+          throw new Error('Only pending meter readings can be reviewed.');
+        }
+
+        const [tenancy, room, settlementAccount, meter] = await Promise.all([
+          prisma.tenancy.findUnique({ where: { id: reading.tenancyId } }),
+          prisma.room.findUnique({ where: { id: reading.roomId } }),
+          prisma.settlementAccount.findFirst(),
+          prisma.roomMeter.findUnique({ where: { id: reading.meterId } }),
+        ]);
+
+        const resolvedTenancy = requireRecord(tenancy, 'Tenancy not found.');
+        const resolvedRoom = requireRecord(room, 'Room not found.');
+        const resolvedSettlement = requireRecord(settlementAccount, 'Settlement account not found.');
+        const resolvedMeter = requireRecord(meter, 'Room meter not found.');
+        const reviewedAt = getTodayIso();
+        const approved = input.decision === 'APPROVE';
+
+        const existingInvoice = await prisma.invoice.findFirst({
+          where: {
+            tenancyId: resolvedTenancy.id,
+            month: reading.month,
+          },
+          select: { id: true },
+        });
+
+        if (approved && existingInvoice) {
+          throw new Error('This month already has a generated invoice.');
+        }
+
+        await prisma.$transaction(async (tx) => {
+          if (!approved) {
+            await tx.meterReading.update({
+              where: { id: reading.id },
+              data: {
+                status: METER_READING_STATUS.REJECTED,
+                reviewedAt,
+                reviewerNote: input.reviewerNote || '',
+              },
+            });
+
+            await recordAudit(
+              tx,
+              'Meter reading rejected',
+              `Reading ${reading.id} for ${reading.month} was rejected.`,
+              reviewedAt,
+            );
+            return;
+          }
+
+          const bundle = createInvoiceForTenancy({
+            tenancy: resolvedTenancy,
+            room: resolvedRoom,
+            settlementAccount: resolvedSettlement,
+            month: reading.month,
+            openingReading: reading.openingReading,
+            closingReading: reading.closingReading,
+            tariff: reading.tariff,
+            photoLabel: reading.photoLabel || '',
+            capturedByRole: reading.capturedByRole || 'TENANT',
+            reviewedAt,
+            reviewerNote: input.reviewerNote || '',
+            referenceDate: reviewedAt,
+          });
+
+          await tx.invoice.create({
+            data: {
+              ...bundle.invoice,
+              paymentSubmissionId: null,
+              paidAt: null,
+            },
+          });
+
+          await tx.meterReading.update({
+            where: { id: reading.id },
+            data: {
+              invoiceId: bundle.invoice.id,
+              status: METER_READING_STATUS.APPROVED,
+              reviewedAt,
+              reviewerNote: input.reviewerNote || '',
+            },
+          });
+
+          await tx.reminder.createMany({
+            data: bundle.reminders.map((reminder) => ({
+              ...reminder,
+              lastAttemptAt: reminder.lastAttemptAt || null,
+            })),
+          });
+
+          await tx.roomMeter.update({
+            where: { id: resolvedMeter.id },
+            data: {
+              lastReading: reading.closingReading,
+            },
+          });
+
+          await recordAudit(
+            tx,
+            'Meter reading approved',
+            `Reading ${reading.month} for room ${resolvedRoom.label} was approved and billed.`,
+            reviewedAt,
+          );
+        });
+
+        return getState(prisma);
+      });
+    },
+
     async submitPayment(input) {
       return run(async () => {
         const invoice = requireRecord(
@@ -567,11 +798,20 @@ function createRentBackend(options = {}) {
           'Choose an invoice before submitting a payment proof.',
         );
 
-        if (!input.utr || !input.screenshotLabel) {
-          throw new Error('UTR/reference and proof label are required.');
+        if (!input.utr || !input.proofUpload?.dataUrl) {
+          throw new Error('UTR/reference and payment proof are required.');
+        }
+
+        if (invoice.status === INVOICE_STATUS.PAID) {
+          throw new Error('This invoice is already approved and paid.');
+        }
+
+        if (invoice.status === INVOICE_STATUS.PAYMENT_SUBMITTED) {
+          throw new Error('A final review is already pending for this invoice.');
         }
 
         const submissionId = makeId('submission');
+        const uploadedPaymentProof = saveImageUpload('payment-proof', input.proofUpload);
 
         await prisma.$transaction(async (tx) => {
           await tx.paymentSubmission.create({
@@ -581,7 +821,7 @@ function createRentBackend(options = {}) {
               tenantId: invoice.tenantId,
               status: PAYMENT_SUBMISSION_STATUS.PENDING_REVIEW,
               utr: input.utr,
-              screenshotLabel: input.screenshotLabel,
+              screenshotLabel: uploadedPaymentProof,
               note: input.note || '',
               submittedAt: getTodayIso(),
               reviewedAt: null,
@@ -624,6 +864,9 @@ function createRentBackend(options = {}) {
           await prisma.invoice.findUnique({ where: { id: submission.invoiceId } }),
           'Invoice not found.',
         );
+        const meterReading = await prisma.meterReading.findFirst({
+          where: { invoiceId: invoice.id },
+        });
         const approved = input.decision === 'APPROVE';
 
         await prisma.$transaction(async (tx) => {
@@ -653,6 +896,24 @@ function createRentBackend(options = {}) {
           });
 
           if (approved) {
+            if (meterReading) {
+              await tx.meterReading.update({
+                where: { id: meterReading.id },
+                data: {
+                  status: METER_READING_STATUS.APPROVED,
+                  reviewedAt,
+                  reviewerNote: input.reviewerNote || '',
+                },
+              });
+
+              await tx.roomMeter.update({
+                where: { id: meterReading.meterId },
+                data: {
+                  lastReading: meterReading.closingReading,
+                },
+              });
+            }
+
             const reminders = await tx.reminder.findMany({
               where: { invoiceId: invoice.id },
             });

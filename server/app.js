@@ -2,12 +2,14 @@ const cors = require('cors');
 const express = require('express');
 
 const { createRentBackend, isClientError } = require('./backend');
+const { getUploadsDir } = require('./uploads');
 
 function createApp(backend) {
   const app = express();
 
   app.use(cors());
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '15mb' }));
+  app.use('/uploads', express.static(getUploadsDir()));
 
   app.get('/health', (_request, response) => {
     response.status(200).json({
@@ -54,6 +56,14 @@ function createApp(backend) {
 
   app.post('/api/invoices', async (request, response) => {
     response.status(201).json(await backend.generateInvoice(request.body || {}));
+  });
+
+  app.post('/api/meter-readings/submissions', async (request, response) => {
+    response.status(201).json(await backend.submitMeterReading(request.body || {}));
+  });
+
+  app.post('/api/meter-readings/review', async (request, response) => {
+    response.status(200).json(await backend.reviewMeterReading(request.body || {}));
   });
 
   app.post('/api/payments/submissions', async (request, response) => {
