@@ -86,7 +86,7 @@ test('buildContractRecord enforces required fields', () => {
       buildContractRecord({
         tenancyId: 'tenancy-1',
         contractInput: {
-          fileName: '',
+          imageLabels: [],
         },
       }),
     /Missing contract field/,

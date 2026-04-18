@@ -434,9 +434,20 @@ function createRentBackend(options = {}) {
           throw new Error('This room already has another active tenancy.');
         }
 
+        if (!Array.isArray(contractInput.contractUploads) || !contractInput.contractUploads.length) {
+          throw new Error('At least one agreement image is required before move-in.');
+        }
+
+        const imageLabels = contractInput.contractUploads.map((upload, index) =>
+          saveImageUpload(`agreement-${index + 1}`, upload),
+        );
+
         const { contract, tenancyPatch } = buildContractRecord({
           tenancyId,
-          contractInput,
+          contractInput: {
+            ...contractInput,
+            imageLabels,
+          },
         });
 
         await prisma.$transaction(async (tx) => {
@@ -467,7 +478,7 @@ function createRentBackend(options = {}) {
           await recordAudit(
             tx,
             'Tenancy activated',
-            `Contract ${contract.fileName} was attached and activated.`,
+            `${imageLabels.length} agreement image${imageLabels.length === 1 ? '' : 's'} were attached and the stay was activated.`,
           );
         });
 

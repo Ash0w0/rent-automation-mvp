@@ -270,7 +270,6 @@ function createInvoiceForTenancy({
 
 function buildContractRecord({ tenancyId, contractInput }) {
   const requiredFields = [
-    'fileName',
     'rentAmount',
     'depositAmount',
     'dueDay',
@@ -284,10 +283,15 @@ function buildContractRecord({ tenancyId, contractInput }) {
     throw new Error(`Missing contract field: ${missingField}`);
   }
 
+  if (!Array.isArray(contractInput.imageLabels) || !contractInput.imageLabels.length) {
+    throw new Error('Missing contract field: imageLabels');
+  }
+
   const contract = {
     id: makeId('contract'),
     tenancyId,
-    fileName: contractInput.fileName,
+    fileName: contractInput.imageLabels[0],
+    imageLabels: contractInput.imageLabels,
     rentAmount: Number(contractInput.rentAmount),
     depositAmount: Number(contractInput.depositAmount),
     dueDay: Number(contractInput.dueDay),

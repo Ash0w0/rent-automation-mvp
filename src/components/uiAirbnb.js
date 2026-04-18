@@ -128,15 +128,6 @@ export function PageHeader({ eyebrow, title, subtitle, highlights = [], actionLa
         </View>
         {actionLabel ? <PrimaryButton label={actionLabel} onPress={onAction} tone="secondary" /> : null}
       </View>
-      {highlights.length ? (
-        <View style={styles.highlightWrap}>
-          {highlights.map((item) => (
-            <View key={item} style={styles.highlightPill}>
-              <Text style={styles.highlightText}>{item}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -455,11 +446,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   screenHero: {
-    height: 182,
+    minHeight: 214,
     backgroundColor: palette.accent,
     justifyContent: 'flex-end',
     paddingHorizontal: 22,
-    paddingTop: 24,
+    paddingTop: 52,
     paddingBottom: 34,
     overflow: 'hidden',
   },

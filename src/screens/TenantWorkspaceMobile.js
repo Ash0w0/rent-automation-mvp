@@ -239,7 +239,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     home: {
       eyebrow: 'Tenant',
       title: tenant.fullName || 'Your stay',
-      subtitle: "Keep this month's bill, your meter update, and your agreement in one clear flow.",
+      subtitle: 'Everything for your stay, in one place.',
       highlights: [
         room ? `Room ${room.label}` : 'Room pending',
         roomMeter ? `${roomMeter.lastReading} units` : 'Meter pending',

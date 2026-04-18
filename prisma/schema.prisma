@@ -153,6 +153,7 @@ model Contract {
   id            String  @id
   tenancyId     String  @unique
   fileName      String
+  imageLabels   Json?
   rentAmount    Float
   depositAmount Float
   dueDay        Int
