@@ -27,7 +27,7 @@ const emptySession = {
   currentOwnerId: null,
 };
 
-const isDemoMode = process.env.EXPO_PUBLIC_DEMO_MODE === 'true';
+const isDemoMode = process.env.EXPO_PUBLIC_DEMO_MODE === 'false';
 
 function createInitialState() {
   return {
