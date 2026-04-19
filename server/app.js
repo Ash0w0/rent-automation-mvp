@@ -18,12 +18,41 @@ function createApp(backend) {
     });
   });
 
-  app.get('/api/state', async (_request, response) => {
-    response.status(200).json(await backend.getState());
+  app.post('/api/auth/request-otp', async (request, response) => {
+    response.status(200).json(await backend.requestOtp(request.body || {}));
   });
 
-  app.post('/api/auth/demo-login', async (request, response) => {
-    response.status(200).json(await backend.bootstrap(request.body || {}));
+  app.post('/api/auth/verify-otp', async (request, response) => {
+    response.status(200).json(await backend.verifyOtp(request.body || {}));
+  });
+
+  app.post('/api/auth/refresh', async (request, response) => {
+    response.status(200).json(await backend.refreshAuth(request.body || {}));
+  });
+
+  app.post('/api/auth/logout', async (request, response) => {
+    response.status(200).json(await backend.logout(request.body || {}));
+  });
+
+  app.use('/api', async (request, response, next) => {
+    const authorization = request.headers.authorization || '';
+    const [, token] = authorization.match(/^Bearer\s+(.+)$/i) || [];
+
+    if (!token) {
+      response.status(401).json({ error: 'Authentication required.' });
+      return;
+    }
+
+    try {
+      request.authState = await backend.getStateForAccessToken(token);
+      next();
+    } catch (error) {
+      response.status(401).json({ error: error.message || 'Invalid session.' });
+    }
+  });
+
+  app.get('/api/state', async (request, response) => {
+    response.status(200).json(request.authState);
   });
 
   app.patch('/api/property', async (request, response) => {

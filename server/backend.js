@@ -14,8 +14,17 @@ const {
   isTenantProfileComplete,
   makeId,
 } = require('../src/lib/rentEngine');
+const {
+  buildSessionTokens,
+  capRefreshExpiry,
+  createSessionRecord,
+  hashToken,
+  toIso,
+  verifyToken,
+} = require('./auth');
 const { createPrismaClient } = require('./prisma');
 const { seedDatabase } = require('./seed');
+const { checkPhoneVerification, normalizePhoneNumber, startPhoneVerification } = require('./twilioVerify');
 const { saveImageUpload } = require('./uploads');
 
 const emptySession = {
@@ -56,6 +65,42 @@ function isClientError(error) {
   return /not found|required|unable|only|missing|already|must|invalid|choose|use owner|schedule/i.test(
     error.message,
   );
+}
+
+async function findAuthIdentity(prisma, role, phone) {
+  const normalizedPhone = String(phone || '').trim();
+
+  if (role === 'owner') {
+    const owner = await prisma.owner.findFirst({
+      where: { phone: normalizedPhone },
+    });
+
+    if (!owner) {
+      throw new Error('This owner phone number is not registered.');
+    }
+
+    return {
+      role: 'owner',
+      phone: normalizedPhone,
+      ownerId: owner.id,
+      tenantId: null,
+    };
+  }
+
+  const tenant = await prisma.tenant.findFirst({
+    where: { phone: normalizedPhone },
+  });
+
+  if (!tenant) {
+    throw new Error('This tenant phone number is not invited yet.');
+  }
+
+  return {
+    role: 'tenant',
+    phone: normalizedPhone,
+    ownerId: null,
+    tenantId: tenant.id,
+  };
 }
 
 async function updateInvoiceStatuses(prisma, referenceDate) {
@@ -200,25 +245,170 @@ function createRentBackend(options = {}) {
       return run(() => getState(prisma, session));
     },
 
-    async bootstrap({ role, phone }) {
+    async getStateForAccessToken(accessToken) {
       return run(async () => {
-        const normalizedPhone = String(phone || '').trim();
+        const payload = verifyToken(accessToken);
+
+        if (payload.typ !== 'access') {
+          throw new Error('Invalid access token.');
+        }
+
+        const session = await prisma.authSession.findUnique({
+          where: { id: payload.sid },
+        });
+
+        if (!session || session.revokedAt) {
+          throw new Error('Your session is no longer active.');
+        }
+
+        if (new Date(session.sessionExpiresAt).getTime() <= Date.now()) {
+          throw new Error('Your session has expired. Please log in again.');
+        }
+
+        const state = await getState(prisma);
+        return getState(prisma, toSession(payload.role, payload.phone, state));
+      });
+    },
+
+    async requestOtp({ role, phone }) {
+      return run(async () => {
+        await findAuthIdentity(prisma, role, phone);
+        const verification = await startPhoneVerification(phone);
+
+        return {
+          ok: true,
+          sid: verification.sid,
+          status: verification.status,
+          role,
+          phone: String(phone || '').trim(),
+          normalizedPhone: normalizePhoneNumber(phone),
+        };
+      });
+    },
+
+    async verifyOtp({ role, phone, code }) {
+      return run(async () => {
+        const identity = await findAuthIdentity(prisma, role, phone);
+        const verification = await checkPhoneVerification(phone, code);
+
+        if (verification.status !== 'approved') {
+          throw new Error('The OTP is invalid or has expired.');
+        }
+
+        const now = new Date();
+        const session = createSessionRecord({
+          id: makeId('session'),
+          role: identity.role,
+          phone: identity.phone,
+          ownerId: identity.ownerId,
+          tenantId: identity.tenantId,
+          now,
+        });
+        const tokens = buildSessionTokens(session);
+
+        await prisma.authSession.create({
+          data: {
+            ...session,
+            refreshTokenHash: hashToken(tokens.refreshToken),
+          },
+        });
+
         const state = await getState(prisma);
 
-        if (role === 'owner') {
-          if (normalizedPhone !== state.owner.phone) {
-            throw new Error('Use owner demo login 9000000000 for the admin portal.');
-          }
+        return {
+          tokens,
+          state: await getState(prisma, toSession(identity.role, identity.phone, state)),
+        };
+      });
+    },
 
-          return getState(prisma, toSession('owner', normalizedPhone, state));
+    async refreshAuth({ refreshToken }) {
+      return run(async () => {
+        const payload = verifyToken(refreshToken);
+
+        if (payload.typ !== 'refresh') {
+          throw new Error('Invalid refresh token.');
         }
 
-        const tenant = state.tenants.find((record) => record.phone === normalizedPhone);
-        if (!tenant) {
-          throw new Error('This tenant phone number is not invited yet.');
+        const session = await prisma.authSession.findUnique({
+          where: { id: payload.sid },
+        });
+
+        if (!session || session.revokedAt) {
+          throw new Error('Your session is no longer active.');
         }
 
-        return getState(prisma, toSession('tenant', normalizedPhone, state));
+        if (session.refreshTokenHash !== hashToken(refreshToken)) {
+          throw new Error('This refresh token is no longer valid.');
+        }
+
+        const now = new Date();
+
+        if (new Date(session.refreshExpiresAt).getTime() <= now.getTime()) {
+          throw new Error('Your refresh token has expired. Please log in again.');
+        }
+
+        if (new Date(session.sessionExpiresAt).getTime() <= now.getTime()) {
+          throw new Error('Your session has expired. Please log in again.');
+        }
+
+        const nextRefreshExpiresAt = capRefreshExpiry(now, session.sessionExpiresAt);
+        const nextSession = {
+          ...session,
+          refreshExpiresAt: toIso(nextRefreshExpiresAt),
+          updatedAt: toIso(now),
+          lastUsedAt: toIso(now),
+        };
+        const tokens = buildSessionTokens(nextSession);
+
+        await prisma.authSession.update({
+          where: { id: session.id },
+          data: {
+            refreshTokenHash: hashToken(tokens.refreshToken),
+            refreshExpiresAt: nextSession.refreshExpiresAt,
+            updatedAt: nextSession.updatedAt,
+            lastUsedAt: nextSession.lastUsedAt,
+          },
+        });
+
+        const state = await getState(prisma);
+
+        return {
+          tokens,
+          state: await getState(prisma, toSession(payload.role, payload.phone, state)),
+        };
+      });
+    },
+
+    async logout({ refreshToken }) {
+      return run(async () => {
+        if (!refreshToken) {
+          return { ok: true };
+        }
+
+        const payload = verifyToken(refreshToken);
+
+        if (payload.typ !== 'refresh') {
+          throw new Error('Invalid refresh token.');
+        }
+
+        const session = await prisma.authSession.findUnique({
+          where: { id: payload.sid },
+        });
+
+        if (!session) {
+          return { ok: true };
+        }
+
+        await prisma.authSession.update({
+          where: { id: session.id },
+          data: {
+            revokedAt: toIso(new Date()),
+            updatedAt: toIso(new Date()),
+          },
+        });
+
+        return { ok: true };
       });
     },
 
@@ -410,14 +600,10 @@ function createRentBackend(options = {}) {
           throw new Error('Only invited tenancies can be activated.');
         }
 
-        const tenant = requireRecord(
+        requireRecord(
           await prisma.tenant.findUnique({ where: { id: tenancy.tenantId } }),
           'Unable to find the tenant profile.',
         );
-
-        if (!isTenantProfileComplete(tenant)) {
-          throw new Error('The tenant must complete the profile before contract activation.');
-        }
 
         const conflictingTenancy = await prisma.tenancy.findFirst({
           where: {

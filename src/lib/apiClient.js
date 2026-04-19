@@ -1,4 +1,10 @@
 const { Platform } = require('react-native');
+const { getStoredTokens, setStoredTokens } = require('./tokenStorage');
+
+let authTokens = {
+  accessToken: null,
+  refreshToken: null,
+};
 
 function trimTrailingSlash(value) {
   return value.replace(/\/+$/, '');
@@ -45,12 +51,27 @@ async function requestJson(path, options = {}) {
     headers: {},
   };
 
+  const authRequired = options.auth !== false;
+
+  if (authRequired && authTokens.accessToken) {
+    requestOptions.headers.Authorization = `Bearer ${authTokens.accessToken}`;
+  }
+
   if (options.body !== undefined) {
     requestOptions.headers['Content-Type'] = 'application/json';
     requestOptions.body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, requestOptions);
+  let response = await fetch(`${getApiBaseUrl()}${path}`, requestOptions);
+
+  if (response.status === 401 && authRequired && authTokens.refreshToken && path !== '/api/auth/refresh') {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      requestOptions.headers.Authorization = `Bearer ${authTokens.accessToken}`;
+      response = await fetch(`${getApiBaseUrl()}${path}`, requestOptions);
+    }
+  }
+
   const rawBody = await response.text();
   const payload = rawBody ? JSON.parse(rawBody) : null;
 
@@ -65,11 +86,77 @@ function fetchAppState() {
   return requestJson('/api/state');
 }
 
-function demoLogin(role, phone) {
-  return requestJson('/api/auth/demo-login', {
+async function hydrateStoredTokens() {
+  authTokens = await getStoredTokens();
+  return authTokens;
+}
+
+async function setAuthTokens(tokens) {
+  authTokens = {
+    accessToken: tokens?.accessToken || null,
+    refreshToken: tokens?.refreshToken || null,
+  };
+  await setStoredTokens(authTokens);
+}
+
+function clearAuthTokens() {
+  return setAuthTokens({
+    accessToken: null,
+    refreshToken: null,
+  });
+}
+
+function requestOtp(role, phone) {
+  return requestJson('/api/auth/request-otp', {
     method: 'POST',
     body: { role, phone },
+    auth: false,
   });
+}
+
+async function verifyOtp(role, phone, code) {
+  const payload = await requestJson('/api/auth/verify-otp', {
+    method: 'POST',
+    body: { role, phone, code },
+    auth: false,
+  });
+
+  await setAuthTokens(payload.tokens);
+  return payload.state;
+}
+
+async function refreshSession() {
+  if (!authTokens.refreshToken) {
+    return false;
+  }
+
+  try {
+    const payload = await requestJson('/api/auth/refresh', {
+      method: 'POST',
+      body: { refreshToken: authTokens.refreshToken },
+      auth: false,
+    });
+
+    await setAuthTokens(payload.tokens);
+    return true;
+  } catch (_error) {
+    await clearAuthTokens();
+    return false;
+  }
+}
+
+async function logoutSession() {
+  try {
+    if (authTokens.refreshToken) {
+      await requestJson('/api/auth/logout', {
+        method: 'POST',
+        body: { refreshToken: authTokens.refreshToken },
+        auth: false,
+      });
+    }
+  } finally {
+    await clearAuthTokens();
+  }
 }
 
 function updateProperty(payload) {
@@ -173,13 +260,17 @@ module.exports = {
   addRoom,
   activateTenancy,
   closeTenancy,
+  clearAuthTokens,
   completeTenantProfile,
-  demoLogin,
   fetchAppState,
   generateInvoice,
   getApiBaseUrl,
+  hydrateStoredTokens,
   inviteTenant,
+  logoutSession,
+  refreshSession,
   resolveUploadUrl,
+  requestOtp,
   reviewMeterReading,
   reviewPayment,
   scheduleMoveOut,
@@ -188,4 +279,5 @@ module.exports = {
   updateProperty,
   updateReminderStatus,
   updateSettlement,
+  verifyOtp,
 };

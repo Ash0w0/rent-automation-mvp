@@ -65,6 +65,7 @@ model Owner {
   name       String
   phone      String     @unique
   properties Property[]
+  authSessions AuthSession[]
 
   @@map("owners")
 }
@@ -145,8 +146,31 @@ model Tenant {
   meterReadings     MeterReading[]
   paymentSubmissions PaymentSubmission[]
   reminders         Reminder[]
+  authSessions      AuthSession[]
 
   @@map("tenants")
+}
+
+model AuthSession {
+  id                String   @id
+  role              String
+  phone             String
+  ownerId           String?
+  tenantId          String?
+  refreshTokenHash  String
+  sessionExpiresAt  String
+  refreshExpiresAt  String
+  createdAt         String
+  updatedAt         String
+  lastUsedAt        String
+  revokedAt         String?
+  owner             Owner?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tenant            Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([phone, role])
+  @@index([sessionExpiresAt])
+  @@index([refreshExpiresAt])
+  @@map("auth_sessions")
 }
 
 model Contract {

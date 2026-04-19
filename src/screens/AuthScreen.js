@@ -4,42 +4,42 @@ import { StatusBar } from 'expo-status-bar';
 
 import { Banner, Field, palette } from '../components/uiAirbnb';
 
-export function AuthScreen({ onLogin, isBusy = false, backendError = null, isDemoMode = false }) {
+export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError = null }) {
   const [role, setRole] = useState('tenant');
-  const [phone, setPhone] = useState('9000000001');
-  const [otp, setOtp] = useState('123456');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
   const [step, setStep] = useState('request');
   const [message, setMessage] = useState(null);
 
   const handleRoleChange = (nextRole) => {
     setRole(nextRole);
-    setPhone(nextRole === 'owner' ? '9000000000' : '9000000001');
-    setOtp('123456');
+    setPhone('');
+    setOtp('');
     setStep('request');
     setMessage(null);
   };
 
-  const handleRequestOtp = () => {
+  const handleRequestOtp = async () => {
     if (phone.trim().length !== 10) {
       setMessage({ tone: 'danger', text: 'Enter a valid 10-digit mobile number to continue.' });
       return;
     }
 
-    setStep('verify');
-    setMessage({
-      tone: 'info',
-      text: 'Demo mode is on. Use OTP 123456 to continue.',
-    });
+    try {
+      await onRequestOtp(role, phone);
+      setStep('verify');
+      setMessage({
+        tone: 'info',
+        text: 'We sent a 6-digit OTP to your mobile number.',
+      });
+    } catch (error) {
+      setMessage({ tone: 'danger', text: error.message });
+    }
   };
 
   const handleLogin = async () => {
-    if (otp !== '123456') {
-      setMessage({ tone: 'danger', text: 'Use OTP 123456 for this demo.' });
-      return;
-    }
-
     try {
-      await onLogin(role, phone);
+      await onLogin(role, phone, otp);
       setMessage(null);
     } catch (error) {
       setMessage({ tone: 'danger', text: error.message });
@@ -85,12 +85,6 @@ export function AuthScreen({ onLogin, isBusy = false, backendError = null, isDem
             <Text style={styles.subtitle}>{subtitle}</Text>
 
             {message ? <Banner tone={message.tone} message={message.text} /> : null}
-            {isDemoMode ? (
-              <Banner
-                tone="info"
-                message="Public preview mode is on. Browse the product with demo logins, but edits are disabled here."
-              />
-            ) : null}
             {backendError ? <Banner tone="danger" message={backendError} /> : null}
             {isBusy ? <Banner tone="info" message="Connecting to your workspace..." /> : null}
 
@@ -107,7 +101,7 @@ export function AuthScreen({ onLogin, isBusy = false, backendError = null, isDem
                   label="OTP"
                   value={otp}
                   onChangeText={setOtp}
-                  placeholder="123456"
+                  placeholder="6-digit OTP"
                   keyboardType="numeric"
                 />
               ) : null}
