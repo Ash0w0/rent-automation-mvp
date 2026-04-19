@@ -61,6 +61,89 @@ function requireRecord(record, message) {
   return record;
 }
 
+function requireAuthenticatedSession(session) {
+  if (!session?.role) {
+    throw new Error('Authentication required.');
+  }
+
+  return session;
+}
+
+function requireOwnerSession(session) {
+  const resolvedSession = requireAuthenticatedSession(session);
+
+  if (resolvedSession.role !== 'owner') {
+    throw new Error('Only the owner can perform this action.');
+  }
+
+  return resolvedSession;
+}
+
+function requireTenantSession(session) {
+  const resolvedSession = requireAuthenticatedSession(session);
+
+  if (resolvedSession.role !== 'tenant') {
+    throw new Error('Only the tenant can perform this action.');
+  }
+
+  return resolvedSession;
+}
+
+function requireTenantAccess(session, tenantId) {
+  const resolvedSession = requireTenantSession(session);
+
+  if (resolvedSession.currentTenantId !== tenantId) {
+    throw new Error('You can only access your own tenant records.');
+  }
+
+  return resolvedSession;
+}
+
+function requireTenancyAccess(session, tenancy) {
+  if (session?.role === 'owner') {
+    return requireOwnerSession(session);
+  }
+
+  const resolvedSession = requireTenantSession(session);
+
+  if (tenancy.tenantId !== resolvedSession.currentTenantId) {
+    throw new Error('You can only access your own tenancy.');
+  }
+
+  return resolvedSession;
+}
+
+function requireInvoiceAccess(session, invoice) {
+  if (session?.role === 'owner') {
+    return requireOwnerSession(session);
+  }
+
+  const resolvedSession = requireTenantSession(session);
+
+  if (invoice.tenantId !== resolvedSession.currentTenantId) {
+    throw new Error('You can only access your own invoice.');
+  }
+
+  return resolvedSession;
+}
+
+function requirePaymentSubmissionAccess(session, submission, invoice) {
+  if (session?.role === 'owner') {
+    return requireOwnerSession(session);
+  }
+
+  const resolvedSession = requireTenantSession(session);
+
+  if (
+    submission.tenantId !== resolvedSession.currentTenantId ||
+    invoice.tenantId !== resolvedSession.currentTenantId
+  ) {
+    throw new Error('You can only access your own payment submission.');
+  }
+
+  return resolvedSession;
+}
+
 function isClientError(error) {
   return /not found|required|unable|only|missing|already|must|invalid|choose|use owner|schedule/i.test(
     error.message,
@@ -201,6 +284,43 @@ async function getState(prisma, session = null) {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     }),
   ]);
+
+  if (session?.role === 'tenant') {
+    const currentTenantId = session.currentTenantId;
+    const visibleTenancyIds = tenancies
+      .filter((tenancy) => tenancy.tenantId === currentTenantId)
+      .map((tenancy) => tenancy.id);
+    const visibleRoomIds = tenancies
+      .filter((tenancy) => tenancy.tenantId === currentTenantId)
+      .map((tenancy) => tenancy.roomId);
+    const visibleContractIds = tenancies
+      .filter((tenancy) => tenancy.tenantId === currentTenantId)
+      .map((tenancy) => tenancy.contractId)
+      .filter(Boolean);
+
+    return {
+      referenceDate,
+      session,
+      owner,
+      property,
+      settlementAccount,
+      rooms: rooms.filter((room) => visibleRoomIds.includes(room.id)),
+      roomMeters: roomMeters.filter((meter) => visibleRoomIds.includes(meter.roomId)),
+      tenants: tenants.filter((tenant) => tenant.id === currentTenantId),
+      tenancies: tenancies.filter((tenancy) => tenancy.tenantId === currentTenantId),
+      contracts: contracts.filter((contract) => visibleContractIds.includes(contract.id)),
+      invoices: invoices.filter((invoice) => invoice.tenantId === currentTenantId),
+      meterReadings: meterReadings.filter(
+        (reading) =>
+          reading.tenantId === currentTenantId || visibleTenancyIds.includes(reading.tenancyId),
+      ),
+      paymentSubmissions: paymentSubmissions.filter(
+        (submission) => submission.tenantId === currentTenantId,
+      ),
+      reminders: reminders.filter((reminder) => reminder.tenantId === currentTenantId),
+      auditTrail: [],
+    };
+  }
 
   return {
     referenceDate,
@@ -412,8 +532,9 @@ function createRentBackend(options = {}) {
       });
     },
 
-    async updateProperty(payload) {
+    async updateProperty(payload, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const property = requireRecord(await prisma.property.findFirst(), 'Property not found.');
         const nextProperty = { ...property, ...payload };
 
@@ -429,12 +550,13 @@ function createRentBackend(options = {}) {
         });
 
         await recordAudit(prisma, 'Property updated', `Updated property details for ${nextProperty.name}.`);
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async updateSettlement(payload) {
+    async updateSettlement(payload, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const settlement = requireRecord(
           await prisma.settlementAccount.findFirst(),
           'Settlement account not found.',
@@ -451,12 +573,13 @@ function createRentBackend(options = {}) {
         });
 
         await recordAudit(prisma, 'Settlement updated', 'Updated owner UPI settlement details.');
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async addRoom(input) {
+    async addRoom(input, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const property = requireRecord(await prisma.property.findFirst(), 'Property not found.');
 
         if (!input.label || !input.floor || !input.serialNumber) {
@@ -503,12 +626,13 @@ function createRentBackend(options = {}) {
           await recordAudit(tx, 'Room added', `Room ${input.label} was added to the inventory.`);
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async inviteTenant(input) {
+    async inviteTenant(input, session) {
       return run(async () => {
+        requireOwnerSession(session);
         if (!input.fullName || !input.phone || !input.roomId) {
           throw new Error('Tenant name, phone, and room selection are required.');
         }
@@ -559,12 +683,13 @@ function createRentBackend(options = {}) {
           await recordAudit(tx, 'Tenant invited', `${input.fullName} was invited to room ${room.label}.`);
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async completeTenantProfile(tenantId, input) {
+    async completeTenantProfile(tenantId, input, session) {
       return run(async () => {
+        requireTenantAccess(session, tenantId);
         const tenant = requireRecord(
           await prisma.tenant.findUnique({ where: { id: tenantId } }),
           'Unable to find the tenant profile.',
@@ -585,12 +710,13 @@ function createRentBackend(options = {}) {
         });
 
         await recordAudit(prisma, 'Tenant profile updated', `Profile details were saved for ${nextTenant.fullName}.`);
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async activateTenancy(tenancyId, contractInput) {
+    async activateTenancy(tenancyId, contractInput, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const tenancy = requireRecord(
           await prisma.tenancy.findUnique({ where: { id: tenancyId } }),
           'Tenancy not found.',
@@ -668,12 +794,13 @@ function createRentBackend(options = {}) {
           );
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async generateInvoice(input) {
+    async generateInvoice(input, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const tenancy = requireRecord(
           await prisma.tenancy.findUnique({ where: { id: input.tenancyId } }),
           'Select an active tenancy before generating an invoice.',
@@ -769,16 +896,17 @@ function createRentBackend(options = {}) {
           );
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async submitMeterReading(input) {
+    async submitMeterReading(input, session) {
       return run(async () => {
         const tenancy = requireRecord(
           await prisma.tenancy.findUnique({ where: { id: input.tenancyId } }),
           'Choose an active stay before submitting a meter reading.',
         );
+        requireTenancyAccess(session, tenancy);
 
         if (![TENANCY_STATUS.ACTIVE, TENANCY_STATUS.MOVE_OUT_SCHEDULED].includes(tenancy.status)) {
           throw new Error('Only active or moving-out stays can submit a meter reading.');
@@ -868,12 +996,13 @@ function createRentBackend(options = {}) {
           );
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async reviewMeterReading(input) {
+    async reviewMeterReading(input, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const reading = requireRecord(
           await prisma.meterReading.findUnique({ where: { id: input.meterReadingId } }),
           'Choose a meter reading waiting for review.',
@@ -984,16 +1113,17 @@ function createRentBackend(options = {}) {
           );
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async submitPayment(input) {
+    async submitPayment(input, session) {
       return run(async () => {
         const invoice = requireRecord(
           await prisma.invoice.findUnique({ where: { id: input.invoiceId } }),
           'Choose an invoice before submitting a payment proof.',
         );
+        requireInvoiceAccess(session, invoice);
 
         if (!input.utr || !input.proofUpload?.dataUrl) {
           throw new Error('UTR/reference and payment proof are required.');
@@ -1042,12 +1172,13 @@ function createRentBackend(options = {}) {
           );
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async reviewPayment(input) {
+    async reviewPayment(input, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const submission = requireRecord(
           await prisma.paymentSubmission.findUnique({ where: { id: input.submissionId } }),
           'Pick a payment submission that is still waiting for review.',
@@ -1134,12 +1265,13 @@ function createRentBackend(options = {}) {
           );
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async updateReminderStatus(reminderId, deliveryStatus) {
+    async updateReminderStatus(reminderId, deliveryStatus, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const reminder = requireRecord(
           await prisma.reminder.findUnique({ where: { id: reminderId } }),
           'Reminder not found.',
@@ -1153,12 +1285,13 @@ function createRentBackend(options = {}) {
           },
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async scheduleMoveOut(tenancyId, moveOutDate) {
+    async scheduleMoveOut(tenancyId, moveOutDate, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const tenancy = requireRecord(
           await prisma.tenancy.findUnique({ where: { id: tenancyId } }),
           'Tenancy not found.',
@@ -1191,12 +1324,13 @@ function createRentBackend(options = {}) {
           );
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
 
-    async closeTenancy(tenancyId) {
+    async closeTenancy(tenancyId, session) {
       return run(async () => {
+        requireOwnerSession(session);
         const tenancy = requireRecord(
           await prisma.tenancy.findUnique({ where: { id: tenancyId } }),
           'Tenancy not found.',
@@ -1241,7 +1375,7 @@ function createRentBackend(options = {}) {
           );
         });
 
-        return getState(prisma);
+        return getState(prisma, session);
       });
     },
   };

@@ -56,51 +56,79 @@ function createApp(backend) {
   });
 
   app.patch('/api/property', async (request, response) => {
-    response.status(200).json(await backend.updateProperty(request.body || {}));
+    response
+      .status(200)
+      .json(await backend.updateProperty(request.body || {}, request.authState.session));
   });
 
   app.patch('/api/settlement', async (request, response) => {
-    response.status(200).json(await backend.updateSettlement(request.body || {}));
+    response
+      .status(200)
+      .json(await backend.updateSettlement(request.body || {}, request.authState.session));
   });
 
   app.post('/api/rooms', async (request, response) => {
-    response.status(201).json(await backend.addRoom(request.body || {}));
+    response.status(201).json(await backend.addRoom(request.body || {}, request.authState.session));
   });
 
   app.post('/api/tenancies/invite', async (request, response) => {
-    response.status(201).json(await backend.inviteTenant(request.body || {}));
+    response
+      .status(201)
+      .json(await backend.inviteTenant(request.body || {}, request.authState.session));
   });
 
   app.patch('/api/tenants/:tenantId/profile', async (request, response) => {
     response
       .status(200)
-      .json(await backend.completeTenantProfile(request.params.tenantId, request.body || {}));
+      .json(
+        await backend.completeTenantProfile(
+          request.params.tenantId,
+          request.body || {},
+          request.authState.session,
+        ),
+      );
   });
 
   app.post('/api/tenancies/:tenancyId/activate', async (request, response) => {
     response
       .status(200)
-      .json(await backend.activateTenancy(request.params.tenancyId, request.body || {}));
+      .json(
+        await backend.activateTenancy(
+          request.params.tenancyId,
+          request.body || {},
+          request.authState.session,
+        ),
+      );
   });
 
   app.post('/api/invoices', async (request, response) => {
-    response.status(201).json(await backend.generateInvoice(request.body || {}));
+    response
+      .status(201)
+      .json(await backend.generateInvoice(request.body || {}, request.authState.session));
   });
 
   app.post('/api/meter-readings/submissions', async (request, response) => {
-    response.status(201).json(await backend.submitMeterReading(request.body || {}));
+    response
+      .status(201)
+      .json(await backend.submitMeterReading(request.body || {}, request.authState.session));
   });
 
   app.post('/api/meter-readings/review', async (request, response) => {
-    response.status(200).json(await backend.reviewMeterReading(request.body || {}));
+    response
+      .status(200)
+      .json(await backend.reviewMeterReading(request.body || {}, request.authState.session));
   });
 
   app.post('/api/payments/submissions', async (request, response) => {
-    response.status(201).json(await backend.submitPayment(request.body || {}));
+    response
+      .status(201)
+      .json(await backend.submitPayment(request.body || {}, request.authState.session));
   });
 
   app.post('/api/payments/review', async (request, response) => {
-    response.status(200).json(await backend.reviewPayment(request.body || {}));
+    response
+      .status(200)
+      .json(await backend.reviewPayment(request.body || {}, request.authState.session));
   });
 
   app.patch('/api/reminders/:reminderId/status', async (request, response) => {
@@ -110,6 +138,7 @@ function createApp(backend) {
         await backend.updateReminderStatus(
           request.params.reminderId,
           request.body?.deliveryStatus,
+          request.authState.session,
         ),
       );
   });
@@ -117,11 +146,19 @@ function createApp(backend) {
   app.post('/api/tenancies/:tenancyId/move-out', async (request, response) => {
     response
       .status(200)
-      .json(await backend.scheduleMoveOut(request.params.tenancyId, request.body?.moveOutDate));
+      .json(
+        await backend.scheduleMoveOut(
+          request.params.tenancyId,
+          request.body?.moveOutDate,
+          request.authState.session,
+        ),
+      );
   });
 
   app.post('/api/tenancies/:tenancyId/close', async (request, response) => {
-    response.status(200).json(await backend.closeTenancy(request.params.tenancyId));
+    response
+      .status(200)
+      .json(await backend.closeTenancy(request.params.tenancyId, request.authState.session));
   });
 
   app.use((request, response) => {
