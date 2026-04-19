@@ -2,14 +2,40 @@ const cors = require('cors');
 const express = require('express');
 
 const { createRentBackend, isClientError } = require('./backend');
-const { getUploadsDir } = require('./uploads');
+
+function isAllowedOrigin(origin) {
+  if (!origin) {
+    return true;
+  }
+
+  const configuredOrigins = String(process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (configuredOrigins.includes(origin)) {
+    return true;
+  }
+
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+}
 
 function createApp(backend) {
   const app = express();
 
-  app.use(cors());
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (isAllowedOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error('Origin not allowed by CORS.'));
+      },
+    }),
+  );
   app.use(express.json({ limit: '15mb' }));
-  app.use('/uploads', express.static(getUploadsDir()));
 
   app.get('/health', (_request, response) => {
     response.status(200).json({
@@ -19,11 +45,15 @@ function createApp(backend) {
   });
 
   app.post('/api/auth/request-otp', async (request, response) => {
-    response.status(200).json(await backend.requestOtp(request.body || {}));
+    response
+      .status(200)
+      .json(await backend.requestOtp(request.body || {}, { ipAddress: request.ip }));
   });
 
   app.post('/api/auth/verify-otp', async (request, response) => {
-    response.status(200).json(await backend.verifyOtp(request.body || {}));
+    response
+      .status(200)
+      .json(await backend.verifyOtp(request.body || {}, { ipAddress: request.ip }));
   });
 
   app.post('/api/auth/refresh', async (request, response) => {
@@ -44,7 +74,7 @@ function createApp(backend) {
     }
 
     try {
-      request.authState = await backend.getStateForAccessToken(token);
+      request.authSession = await backend.getSessionForAccessToken(token);
       next();
     } catch (error) {
       response.status(401).json({ error: error.message || 'Invalid session.' });
@@ -52,29 +82,29 @@ function createApp(backend) {
   });
 
   app.get('/api/state', async (request, response) => {
-    response.status(200).json(request.authState);
+    response.status(200).json(await backend.getState(request.authSession));
   });
 
   app.patch('/api/property', async (request, response) => {
     response
       .status(200)
-      .json(await backend.updateProperty(request.body || {}, request.authState.session));
+      .json(await backend.updateProperty(request.body || {}, request.authSession));
   });
 
   app.patch('/api/settlement', async (request, response) => {
     response
       .status(200)
-      .json(await backend.updateSettlement(request.body || {}, request.authState.session));
+      .json(await backend.updateSettlement(request.body || {}, request.authSession));
   });
 
   app.post('/api/rooms', async (request, response) => {
-    response.status(201).json(await backend.addRoom(request.body || {}, request.authState.session));
+    response.status(201).json(await backend.addRoom(request.body || {}, request.authSession));
   });
 
   app.post('/api/tenancies/invite', async (request, response) => {
     response
       .status(201)
-      .json(await backend.inviteTenant(request.body || {}, request.authState.session));
+      .json(await backend.inviteTenant(request.body || {}, request.authSession));
   });
 
   app.patch('/api/tenants/:tenantId/profile', async (request, response) => {
@@ -84,7 +114,7 @@ function createApp(backend) {
         await backend.completeTenantProfile(
           request.params.tenantId,
           request.body || {},
-          request.authState.session,
+          request.authSession,
         ),
       );
   });
@@ -96,7 +126,7 @@ function createApp(backend) {
         await backend.activateTenancy(
           request.params.tenancyId,
           request.body || {},
-          request.authState.session,
+          request.authSession,
         ),
       );
   });
@@ -104,31 +134,31 @@ function createApp(backend) {
   app.post('/api/invoices', async (request, response) => {
     response
       .status(201)
-      .json(await backend.generateInvoice(request.body || {}, request.authState.session));
+      .json(await backend.generateInvoice(request.body || {}, request.authSession));
   });
 
   app.post('/api/meter-readings/submissions', async (request, response) => {
     response
       .status(201)
-      .json(await backend.submitMeterReading(request.body || {}, request.authState.session));
+      .json(await backend.submitMeterReading(request.body || {}, request.authSession));
   });
 
   app.post('/api/meter-readings/review', async (request, response) => {
     response
       .status(200)
-      .json(await backend.reviewMeterReading(request.body || {}, request.authState.session));
+      .json(await backend.reviewMeterReading(request.body || {}, request.authSession));
   });
 
   app.post('/api/payments/submissions', async (request, response) => {
     response
       .status(201)
-      .json(await backend.submitPayment(request.body || {}, request.authState.session));
+      .json(await backend.submitPayment(request.body || {}, request.authSession));
   });
 
   app.post('/api/payments/review', async (request, response) => {
     response
       .status(200)
-      .json(await backend.reviewPayment(request.body || {}, request.authState.session));
+      .json(await backend.reviewPayment(request.body || {}, request.authSession));
   });
 
   app.patch('/api/reminders/:reminderId/status', async (request, response) => {
@@ -138,7 +168,7 @@ function createApp(backend) {
         await backend.updateReminderStatus(
           request.params.reminderId,
           request.body?.deliveryStatus,
-          request.authState.session,
+          request.authSession,
         ),
       );
   });
@@ -150,7 +180,7 @@ function createApp(backend) {
         await backend.scheduleMoveOut(
           request.params.tenancyId,
           request.body?.moveOutDate,
-          request.authState.session,
+          request.authSession,
         ),
       );
   });
@@ -158,7 +188,7 @@ function createApp(backend) {
   app.post('/api/tenancies/:tenancyId/close', async (request, response) => {
     response
       .status(200)
-      .json(await backend.closeTenancy(request.params.tenancyId, request.authState.session));
+      .json(await backend.closeTenancy(request.params.tenancyId, request.authSession));
   });
 
   app.use((request, response) => {

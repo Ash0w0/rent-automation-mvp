@@ -42,7 +42,7 @@ function resolveUploadUrl(fileName) {
     return fileName;
   }
 
-  return `${getApiBaseUrl()}/uploads/${fileName}`;
+  return null;
 }
 
 async function requestJson(path, options = {}) {

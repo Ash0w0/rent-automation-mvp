@@ -25,7 +25,7 @@ const {
 const { createPrismaClient } = require('./prisma');
 const { seedDatabase } = require('./seed');
 const { checkPhoneVerification, normalizePhoneNumber, startPhoneVerification } = require('./twilioVerify');
-const { saveImageUpload } = require('./uploads');
+const { readStoredUploadAsDataUrl, saveImageUpload } = require('./uploads');
 
 const emptySession = {
   role: null,
@@ -33,6 +33,14 @@ const emptySession = {
   currentTenantId: null,
   currentOwnerId: null,
 };
+
+const OTP_REQUEST_WINDOW_MS = 10 * 60 * 1000;
+const OTP_VERIFY_WINDOW_MS = 10 * 60 * 1000;
+const OTP_REQUEST_COOLDOWN_MS = 45 * 1000;
+const OTP_REQUEST_MAX_ATTEMPTS = 5;
+const OTP_VERIFY_MAX_ATTEMPTS = 10;
+const otpRequestTracker = new Map();
+const otpVerifyTracker = new Map();
 
 function toSession(role, phone, state) {
   if (role === 'owner') {
@@ -59,6 +67,49 @@ function requireRecord(record, message) {
   }
 
   return record;
+}
+
+function buildOtpRateKey(role, phone, ipAddress = 'unknown') {
+  const safePhone = String(phone || '').replace(/\D+/g, '') || 'unknown';
+  return `${role || 'unknown'}:${safePhone}:${ipAddress}`;
+}
+
+function takeRateLimitedSlot(tracker, key, { windowMs, maxAttempts, cooldownMs = 0 }) {
+  const now = Date.now();
+  const existing = tracker.get(key) || {
+    attempts: [],
+    lastAttemptAt: 0,
+  };
+
+  existing.attempts = existing.attempts.filter((timestamp) => now - timestamp < windowMs);
+
+  if (cooldownMs > 0 && existing.lastAttemptAt && now - existing.lastAttemptAt < cooldownMs) {
+    throw new Error('Please wait before requesting another code.');
+  }
+
+  if (existing.attempts.length >= maxAttempts) {
+    throw new Error('Too many attempts. Please try again later.');
+  }
+
+  existing.attempts.push(now);
+  existing.lastAttemptAt = now;
+  tracker.set(key, existing);
+}
+
+function applyInlineUploadAccess(records, key) {
+  return records.map((record) => ({
+    ...record,
+    [key]: readStoredUploadAsDataUrl(record[key]),
+  }));
+}
+
+function applyInlineContractImages(contracts) {
+  return contracts.map((contract) => ({
+    ...contract,
+    imageLabels: Array.isArray(contract.imageLabels)
+      ? contract.imageLabels.map((label) => readStoredUploadAsDataUrl(label))
+      : contract.imageLabels,
+  }));
 }
 
 function requireAuthenticatedSession(session) {
@@ -301,21 +352,32 @@ async function getState(prisma, session = null) {
     return {
       referenceDate,
       session,
-      owner,
+      owner: owner
+        ? {
+            id: owner.id,
+            name: owner.name,
+          }
+        : null,
       property,
       settlementAccount,
       rooms: rooms.filter((room) => visibleRoomIds.includes(room.id)),
       roomMeters: roomMeters.filter((meter) => visibleRoomIds.includes(meter.roomId)),
       tenants: tenants.filter((tenant) => tenant.id === currentTenantId),
       tenancies: tenancies.filter((tenancy) => tenancy.tenantId === currentTenantId),
-      contracts: contracts.filter((contract) => visibleContractIds.includes(contract.id)),
-      invoices: invoices.filter((invoice) => invoice.tenantId === currentTenantId),
-      meterReadings: meterReadings.filter(
-        (reading) =>
-          reading.tenantId === currentTenantId || visibleTenancyIds.includes(reading.tenancyId),
+      contracts: applyInlineContractImages(
+        contracts.filter((contract) => visibleContractIds.includes(contract.id)),
       ),
-      paymentSubmissions: paymentSubmissions.filter(
-        (submission) => submission.tenantId === currentTenantId,
+      invoices: invoices.filter((invoice) => invoice.tenantId === currentTenantId),
+      meterReadings: applyInlineUploadAccess(
+        meterReadings.filter(
+          (reading) =>
+            reading.tenantId === currentTenantId || visibleTenancyIds.includes(reading.tenancyId),
+        ),
+        'photoLabel',
+      ),
+      paymentSubmissions: applyInlineUploadAccess(
+        paymentSubmissions.filter((submission) => submission.tenantId === currentTenantId),
+        'screenshotLabel',
       ),
       reminders: reminders.filter((reminder) => reminder.tenantId === currentTenantId),
       auditTrail: [],
@@ -332,10 +394,10 @@ async function getState(prisma, session = null) {
     roomMeters,
     tenants,
     tenancies,
-    contracts,
+    contracts: applyInlineContractImages(contracts),
     invoices,
-    meterReadings,
-    paymentSubmissions,
+    meterReadings: applyInlineUploadAccess(meterReadings, 'photoLabel'),
+    paymentSubmissions: applyInlineUploadAccess(paymentSubmissions, 'screenshotLabel'),
     reminders,
     auditTrail,
   };
@@ -365,7 +427,7 @@ function createRentBackend(options = {}) {
       return run(() => getState(prisma, session));
     },
 
-    async getStateForAccessToken(accessToken) {
+    async getSessionForAccessToken(accessToken) {
       return run(async () => {
         const payload = verifyToken(accessToken);
 
@@ -385,31 +447,65 @@ function createRentBackend(options = {}) {
           throw new Error('Your session has expired. Please log in again.');
         }
 
-        const state = await getState(prisma);
-        return getState(prisma, toSession(payload.role, payload.phone, state));
+        return payload.role === 'owner'
+          ? {
+              role: 'owner',
+              phone: payload.phone,
+              currentTenantId: null,
+              currentOwnerId: payload.ownerId || session.ownerId || null,
+            }
+          : {
+              role: 'tenant',
+              phone: payload.phone,
+              currentTenantId: payload.tenantId || session.tenantId || null,
+              currentOwnerId: null,
+            };
       });
     },
 
-    async requestOtp({ role, phone }) {
+    async requestOtp({ role, phone }, requestMeta = {}) {
       return run(async () => {
-        await findAuthIdentity(prisma, role, phone);
-        const verification = await startPhoneVerification(phone);
+        const rateKey = buildOtpRateKey(role, phone, requestMeta.ipAddress);
+        takeRateLimitedSlot(otpRequestTracker, rateKey, {
+          windowMs: OTP_REQUEST_WINDOW_MS,
+          maxAttempts: OTP_REQUEST_MAX_ATTEMPTS,
+          cooldownMs: OTP_REQUEST_COOLDOWN_MS,
+        });
+
+        try {
+          await findAuthIdentity(prisma, role, phone);
+          await startPhoneVerification(phone);
+        } catch (_error) {
+          return {
+            ok: true,
+            status: 'pending',
+          };
+        }
 
         return {
           ok: true,
-          sid: verification.sid,
-          status: verification.status,
-          role,
-          phone: String(phone || '').trim(),
-          normalizedPhone: normalizePhoneNumber(phone),
+          status: 'pending',
         };
       });
     },
 
-    async verifyOtp({ role, phone, code }) {
+    async verifyOtp({ role, phone, code }, requestMeta = {}) {
       return run(async () => {
-        const identity = await findAuthIdentity(prisma, role, phone);
-        const verification = await checkPhoneVerification(phone, code);
+        const rateKey = buildOtpRateKey(role, phone, requestMeta.ipAddress);
+        takeRateLimitedSlot(otpVerifyTracker, rateKey, {
+          windowMs: OTP_VERIFY_WINDOW_MS,
+          maxAttempts: OTP_VERIFY_MAX_ATTEMPTS,
+        });
+
+        let identity;
+        let verification;
+
+        try {
+          identity = await findAuthIdentity(prisma, role, phone);
+          verification = await checkPhoneVerification(phone, code);
+        } catch (_error) {
+          throw new Error('The OTP is invalid or has expired.');
+        }
 
         if (verification.status !== 'approved') {
           throw new Error('The OTP is invalid or has expired.');
