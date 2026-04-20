@@ -476,7 +476,7 @@ function createRentBackend(options = {}) {
           await findAuthIdentity(prisma, role, phone);
           await startPhoneVerification(phone);
         } catch (_error) {
-          console.log(_error, "error)
+          console.log(_error, "error")
           return {
             ok: true,
             status: 'pending',
