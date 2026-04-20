@@ -1,4 +1,5 @@
 const twilio = require('twilio');
+const { normalizePhoneNumber } = require('./phoneUtils');
 
 function maskPhone(phone) {
   const digits = String(phone || '').replace(/\D+/g, '');
@@ -31,30 +32,22 @@ function createTwilioClient() {
     hasApiKeySecret: Boolean(process.env.TWILIO_API_KEY_SECRET),
   });
 
+  const timeoutMs = Number(process.env.TWILIO_REQUEST_TIMEOUT_MS || 60000);
+  const maxRetries = Number(process.env.TWILIO_MAX_RETRIES || 1);
+  const options = {
+    timeout: timeoutMs,
+    autoRetry: maxRetries > 0,
+    maxRetries,
+  };
+
   if (process.env.TWILIO_AUTH_TOKEN) {
-    return twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    return twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN, options);
   }
 
   return twilio(process.env.TWILIO_API_KEY_SID, process.env.TWILIO_API_KEY_SECRET, {
     accountSid: process.env.TWILIO_ACCOUNT_SID,
+    ...options,
   });
-}
-
-function normalizePhoneNumber(phone) {
-  const digits = String(phone || '').replace(/\D+/g, '');
-  if (digits.length === 10) {
-    return `+91${digits}`;
-  }
-
-  if (digits.length === 12 && digits.startsWith('91')) {
-    return `+${digits}`;
-  }
-
-  if (String(phone || '').startsWith('+')) {
-    return String(phone).trim();
-  }
-
-  throw new Error('Enter a valid mobile number including country context.');
 }
 
 async function startPhoneVerification(phone) {

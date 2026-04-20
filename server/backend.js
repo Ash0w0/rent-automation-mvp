@@ -23,8 +23,9 @@ const {
   verifyToken,
 } = require('./auth');
 const { createPrismaClient } = require('./prisma');
+const { buildPhoneCandidates, normalizePhoneNumber, tryNormalizePhoneNumber } = require('./phoneUtils');
 const { seedDatabase } = require('./seed');
-const { checkPhoneVerification, normalizePhoneNumber, startPhoneVerification } = require('./twilioVerify');
+const { checkPhoneVerification, startPhoneVerification } = require('./twilioVerify');
 const { readStoredUploadAsDataUrl, saveImageUpload } = require('./uploads');
 
 const emptySession = {
@@ -43,19 +44,25 @@ const otpRequestTracker = new Map();
 const otpVerifyTracker = new Map();
 
 function toSession(role, phone, state) {
+  const normalizedPhone = normalizePhoneNumber(phone);
   if (role === 'owner') {
     return {
       role: 'owner',
-      phone,
+      phone: normalizedPhone,
       currentTenantId: null,
       currentOwnerId: state.owner.id,
     };
   }
 
-  const tenant = state.tenants.find((record) => record.phone === phone);
+  const tenant = state.tenants.find(
+    (record) => tryNormalizePhoneNumber(record.phone) === normalizedPhone,
+  );
+  if (!tenant) {
+    throw new Error('Unable to map tenant session for this phone number.');
+  }
   return {
     role: 'tenant',
-    phone,
+    phone: normalizedPhone,
     currentTenantId: tenant.id,
     currentOwnerId: null,
   };
@@ -202,39 +209,59 @@ function isClientError(error) {
 }
 
 async function findAuthIdentity(prisma, role, phone) {
-  const normalizedPhone = String(phone || '').trim();
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const phoneCandidates = buildPhoneCandidates(normalizedPhone);
+
+  const owner = await prisma.owner.findFirst({
+    where: { phone: { in: phoneCandidates } },
+  });
+  const tenant = await prisma.tenant.findFirst({
+    where: { phone: { in: phoneCandidates } },
+  });
 
   if (role === 'owner') {
-    const owner = await prisma.owner.findFirst({
-      where: { phone: normalizedPhone },
-    });
-
-    if (!owner) {
-      throw new Error('This owner phone number is not registered.');
+    if (owner) {
+      return {
+        role: 'owner',
+        phone: normalizePhoneNumber(owner.phone),
+        ownerId: owner.id,
+        tenantId: null,
+      };
     }
 
+    // Be forgiving when the user selected the wrong role in UI.
+    if (tenant) {
+      return {
+        role: 'tenant',
+        phone: normalizePhoneNumber(tenant.phone),
+        ownerId: null,
+        tenantId: tenant.id,
+      };
+    }
+
+    throw new Error('This phone number is not registered yet.');
+  }
+
+  if (tenant) {
+    return {
+      role: 'tenant',
+      phone: normalizePhoneNumber(tenant.phone),
+      ownerId: null,
+      tenantId: tenant.id,
+    };
+  }
+
+  // Be forgiving when the user selected the wrong role in UI.
+  if (owner) {
     return {
       role: 'owner',
-      phone: normalizedPhone,
+      phone: normalizePhoneNumber(owner.phone),
       ownerId: owner.id,
       tenantId: null,
     };
   }
 
-  const tenant = await prisma.tenant.findFirst({
-    where: { phone: normalizedPhone },
-  });
-
-  if (!tenant) {
-    throw new Error('This tenant phone number is not invited yet.');
-  }
-
-  return {
-    role: 'tenant',
-    phone: normalizedPhone,
-    ownerId: null,
-    tenantId: tenant.id,
-  };
+  throw new Error('This phone number is not registered yet.');
 }
 
 async function updateInvoiceStatuses(prisma, referenceDate) {
@@ -526,6 +553,9 @@ function createRentBackend(options = {}) {
           identity = await findAuthIdentity(prisma, role, phone);
           verification = await checkPhoneVerification(phone, code);
         } catch (_error) {
+          if (_error?.code === 'ECONNABORTED') {
+            throw new Error('Verification service timed out. Please try again.');
+          }
           throw new Error('The OTP is invalid or has expired.');
         }
 
@@ -754,6 +784,7 @@ function createRentBackend(options = {}) {
         if (!input.fullName || !input.phone || !input.roomId) {
           throw new Error('Tenant name, phone, and room selection are required.');
         }
+        const normalizedInvitePhone = normalizePhoneNumber(input.phone);
 
         const room = requireRecord(
           await prisma.room.findUnique({ where: { id: input.roomId } }),
@@ -764,8 +795,8 @@ function createRentBackend(options = {}) {
           throw new Error('Only vacant rooms can be assigned to a new tenant invite.');
         }
 
-        const duplicateTenant = await prisma.tenant.findUnique({
-          where: { phone: input.phone },
+        const duplicateTenant = await prisma.tenant.findFirst({
+          where: { phone: { in: buildPhoneCandidates(normalizedInvitePhone) } },
           select: { id: true },
         });
 
@@ -778,7 +809,7 @@ function createRentBackend(options = {}) {
           propertyId: property.id,
           roomId: input.roomId,
           fullName: input.fullName,
-          phone: input.phone,
+          phone: normalizedInvitePhone,
         });
 
         await prisma.$transaction(async (tx) => {

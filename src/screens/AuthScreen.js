@@ -3,6 +3,12 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 import { Banner, Field, palette } from '../components/uiAirbnb';
+import { CountryCodePicker } from '../components/CountryCodePicker';
+const {
+  buildPhoneValidationMessage,
+  DEFAULT_DIAL_CODE,
+  normalizePhoneForCountry,
+} = require('../lib/countryPhone');
 
 const RESEND_WAIT_SECONDS = 30;
 
@@ -14,7 +20,7 @@ function formatResendCountdown(seconds) {
 
 function maskPhoneNumber(phone) {
   const digits = String(phone || '').replace(/\D+/g, '');
-  if (digits.length !== 10) {
+  if (digits.length < 8) {
     return 'your mobile number';
   }
 
@@ -24,6 +30,7 @@ function maskPhoneNumber(phone) {
 export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError = null }) {
   const [role, setRole] = useState('tenant');
   const [phone, setPhone] = useState('');
+  const [countryDialCode, setCountryDialCode] = useState(DEFAULT_DIAL_CODE);
   const [otp, setOtp] = useState('');
   const [step, setStep] = useState('request');
   const [message, setMessage] = useState(null);
@@ -41,9 +48,10 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
     return () => clearTimeout(timeoutId);
   }, [step, resendCountdown]);
 
-  const sendOtp = async () => {
-    await onRequestOtp(role, phone);
+  const sendOtp = async (normalizedPhone) => {
+    await onRequestOtp(role, normalizedPhone);
     setStep('verify');
+    setPhone(normalizedPhone);
     setResendCountdown(RESEND_WAIT_SECONDS);
     setMessage({
       tone: 'info',
@@ -54,6 +62,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
   const handleRoleChange = (nextRole) => {
     setRole(nextRole);
     setPhone('');
+    setCountryDialCode(DEFAULT_DIAL_CODE);
     setOtp('');
     setStep('request');
     setMessage(null);
@@ -61,29 +70,51 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
   };
 
   const handleRequestOtp = async () => {
-    if (phone.trim().length !== 10) {
-      setMessage({ tone: 'danger', text: 'Enter a valid 10-digit mobile number to continue.' });
+    const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
+    if (!normalizedPhone) {
+      setMessage({
+        tone: 'danger',
+        text: buildPhoneValidationMessage(countryDialCode),
+      });
       return;
     }
 
     try {
-      await sendOtp();
+      await sendOtp(normalizedPhone);
     } catch (error) {
       setMessage({ tone: 'danger', text: error.message });
     }
   };
 
   const handleResendOtp = async () => {
+    const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
+    if (!normalizedPhone) {
+      setMessage({
+        tone: 'danger',
+        text: buildPhoneValidationMessage(countryDialCode),
+      });
+      return;
+    }
+
     try {
-      await sendOtp();
+      await sendOtp(normalizedPhone);
     } catch (error) {
       setMessage({ tone: 'danger', text: error.message });
     }
   };
 
   const handleLogin = async () => {
+    const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
+    if (!normalizedPhone) {
+      setMessage({
+        tone: 'danger',
+        text: buildPhoneValidationMessage(countryDialCode),
+      });
+      return;
+    }
+
     try {
-      await onLogin(role, phone, otp);
+      await onLogin(role, normalizedPhone, otp);
       setMessage(null);
     } catch (error) {
       setMessage({ tone: 'danger', text: error.message });
@@ -134,12 +165,12 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
             {isBusy ? <Banner tone="info" message="Connecting to your workspace..." /> : null}
 
             <View style={styles.formBlock}>
-              <Field
-                label="Mobile number"
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="10-digit phone number"
-                keyboardType="phone-pad"
+              <CountryCodePicker
+                dialCode={countryDialCode}
+                onDialCodeChange={setCountryDialCode}
+                phone={phone}
+                onPhoneChange={setPhone}
+                placeholder="Enter mobile number"
               />
               {step === 'verify' ? (
                 <Field
