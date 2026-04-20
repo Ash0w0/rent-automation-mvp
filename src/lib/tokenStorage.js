@@ -1,34 +1,41 @@
-let SecureStore = null;
-try {
-  SecureStore = require('expo-secure-store');
-} catch (_error) {
-  SecureStore = null;
-}
+import * as SecureStore from 'expo-secure-store';
 
 const ACCESS_KEY = 'rent-automation-access-token';
 const REFRESH_KEY = 'rent-automation-refresh-token';
 
+// Memory fallback for Web or environments where SecureStore fails
 let memoryTokens = {
   accessToken: null,
   refreshToken: null,
 };
 
 async function readSecureValue(key) {
-  if (SecureStore?.getItemAsync) {
-    return SecureStore.getItemAsync(key);
+  try {
+    // Check if we are in a native environment where SecureStore works
+    const isAvailable = await SecureStore.isAvailableAsync();
+    if (isAvailable) {
+      return await SecureStore.getItemAsync(key);
+    }
+  } catch (e) {
+    // Fallback to memory if SecureStore is missing or fails
   }
 
   return memoryTokens[key === ACCESS_KEY ? 'accessToken' : 'refreshToken'];
 }
 
 async function writeSecureValue(key, value) {
-  if (SecureStore?.setItemAsync && SecureStore?.deleteItemAsync) {
-    if (value === null) {
-      await SecureStore.deleteItemAsync(key);
-    } else {
-      await SecureStore.setItemAsync(key, value);
+  try {
+    const isAvailable = await SecureStore.isAvailableAsync();
+    if (isAvailable) {
+      if (value === null) {
+        await SecureStore.deleteItemAsync(key);
+      } else {
+        await SecureStore.setItemAsync(key, value);
+      }
+      return;
     }
-    return;
+  } catch (e) {
+    // Fallback to memory
   }
 
   if (key === ACCESS_KEY) {
@@ -38,7 +45,7 @@ async function writeSecureValue(key, value) {
   }
 }
 
-async function getStoredTokens() {
+export async function getStoredTokens() {
   const [accessToken, refreshToken] = await Promise.all([
     readSecureValue(ACCESS_KEY),
     readSecureValue(REFRESH_KEY),
@@ -50,14 +57,9 @@ async function getStoredTokens() {
   };
 }
 
-async function setStoredTokens(tokens) {
+export async function setStoredTokens(tokens) {
   await Promise.all([
     writeSecureValue(ACCESS_KEY, tokens?.accessToken || null),
     writeSecureValue(REFRESH_KEY, tokens?.refreshToken || null),
   ]);
 }
-
-module.exports = {
-  getStoredTokens,
-  setStoredTokens,
-};
