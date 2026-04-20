@@ -1,8 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 import { Banner, Field, palette } from '../components/uiAirbnb';
+
+const RESEND_WAIT_SECONDS = 30;
+
+function formatResendCountdown(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
+}
+
+function maskPhoneNumber(phone) {
+  const digits = String(phone || '').replace(/\D+/g, '');
+  if (digits.length !== 10) {
+    return 'your mobile number';
+  }
+
+  return `${digits.slice(0, 2)}••••••${digits.slice(-2)}`;
+}
 
 export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError = null }) {
   const [role, setRole] = useState('tenant');
@@ -10,6 +27,29 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
   const [otp, setOtp] = useState('');
   const [step, setStep] = useState('request');
   const [message, setMessage] = useState(null);
+  const [resendCountdown, setResendCountdown] = useState(0);
+
+  useEffect(() => {
+    if (step !== 'verify' || resendCountdown <= 0) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setResendCountdown((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [step, resendCountdown]);
+
+  const sendOtp = async () => {
+    await onRequestOtp(role, phone);
+    setStep('verify');
+    setResendCountdown(RESEND_WAIT_SECONDS);
+    setMessage({
+      tone: 'info',
+      text: 'We sent a 6-digit OTP to your mobile number.',
+    });
+  };
 
   const handleRoleChange = (nextRole) => {
     setRole(nextRole);
@@ -17,6 +57,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
     setOtp('');
     setStep('request');
     setMessage(null);
+    setResendCountdown(0);
   };
 
   const handleRequestOtp = async () => {
@@ -26,12 +67,15 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
     }
 
     try {
-      await onRequestOtp(role, phone);
-      setStep('verify');
-      setMessage({
-        tone: 'info',
-        text: 'We sent a 6-digit OTP to your mobile number.',
-      });
+      await sendOtp();
+    } catch (error) {
+      setMessage({ tone: 'danger', text: error.message });
+    }
+  };
+
+  const handleResendOtp = async () => {
+    try {
+      await sendOtp();
     } catch (error) {
       setMessage({ tone: 'danger', text: error.message });
     }
@@ -50,12 +94,13 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
   const title = step === 'verify' ? 'Verification' : isOwner ? 'Owner login' : 'Welcome to the app';
   const subtitle =
     step === 'verify'
-      ? 'Enter the 6-digit code to continue.'
+      ? `Enter the 6-digit code sent to ${maskPhoneNumber(phone)}.`
       : isOwner
         ? 'Log in to manage your property.'
-        : 'Sign up to get started with your stay.';
+        : 'Use the mobile number linked to your stay.';
   const buttonLabel =
-    step === 'request' ? (isOwner ? 'Log in' : 'Sign up') : isBusy ? 'Please wait...' : 'Continue';
+    step === 'request' ? (isOwner ? 'Log in' : 'Continue') : isBusy ? 'Please wait...' : 'Continue';
+  const resendCountdownLabel = formatResendCountdown(resendCountdown);
 
   return (
     <View style={styles.root}>
@@ -120,14 +165,52 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
               <Text style={styles.primaryButtonArrow}>{'>>'}</Text>
             </Pressable>
 
+            {step === 'verify' ? (
+              <Pressable
+                onPress={() => {
+                  setStep('request');
+                  setOtp('');
+                  setMessage(null);
+                  setResendCountdown(0);
+                }}
+                style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
+              >
+                <Text style={styles.ownerText}>
+                  Wrong number? <Text style={styles.ownerLinkText}>Change it here</Text>
+                </Text>
+              </Pressable>
+            ) : null}
+
+            {step === 'verify' ? (
+              resendCountdown > 0 ? (
+                <View style={styles.ownerLinkWrap}>
+                  <Text style={styles.ownerText}>Resend OTP in {resendCountdownLabel}</Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={handleResendOtp}
+                  disabled={isBusy}
+                  style={({ pressed }) => [
+                    styles.ownerLinkWrap,
+                    isBusy && styles.ownerLinkDisabled,
+                    pressed && !isBusy && styles.ownerLinkPressed,
+                  ]}
+                >
+                  <Text style={styles.ownerText}>
+                    Didn't get the code? <Text style={styles.ownerLinkText}>Resend OTP</Text>
+                  </Text>
+                </Pressable>
+              )
+            ) : null}
+
             <Pressable
               onPress={() => handleRoleChange(isOwner ? 'tenant' : 'owner')}
               style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
             >
               <Text style={styles.ownerText}>
-                {isOwner ? 'Are you a tenant? ' : 'Are you a owner? '}
+                {isOwner ? 'Are you a tenant? ' : 'Are you an owner? '}
                 <Text style={styles.ownerLinkText}>
-                  {isOwner ? 'Sign up from here' : 'Log in from here'}
+                  {isOwner ? 'Continue from here' : 'Log in here'}
                 </Text>
               </Text>
             </Pressable>
@@ -277,6 +360,9 @@ const styles = StyleSheet.create({
   },
   ownerLinkPressed: {
     opacity: 0.7,
+  },
+  ownerLinkDisabled: {
+    opacity: 0.55,
   },
   ownerText: {
     fontSize: 12,

@@ -26,16 +26,16 @@ const { deriveInvoiceStatus } = require('../lib/rentEngine');
 
 const ownerTabs = [
   { label: 'Home', value: 'home' },
-  { label: 'Residents', value: 'residents' },
+  { label: 'Rooms', value: 'rooms' },
   { label: 'Rent', value: 'rent' },
   { label: 'Profile', value: 'profile' },
 ];
 
 const residentModes = [
   { label: 'Add room', value: 'inventory' },
-  { label: 'Move in tenant', value: 'movein' },
-  { label: 'End stay', value: 'moveout' },
-  { label: 'View rooms', value: 'rooms' },
+  { label: 'Fill a room', value: 'movein' },
+  { label: 'Room list', value: 'rooms' },
+  { label: 'Move out', value: 'moveout' },
 ];
 
 const rentModes = [
@@ -46,18 +46,17 @@ const rentModes = [
 const profileModes = [
   { label: 'Property', value: 'property' },
   { label: 'Payouts', value: 'collection' },
-  { label: 'Add room', value: 'inventory' },
 ];
 
 function buildFocus({ pendingSubmissions, invitedTenancies, overdueInvoices, vacantRooms }) {
   if (!vacantRooms.length && !invitedTenancies.length) {
     return {
-      title: 'Set up rooms first',
-      description: 'Create the rooms before you start assigning tenants.',
-      tab: 'residents',
-      mode: 'inventory',
-      tone: 'accent',
-    };
+        title: 'Set up rooms first',
+        description: 'Create the rooms before you start assigning tenants.',
+        tab: 'rooms',
+        mode: 'inventory',
+        tone: 'accent',
+      };
   }
 
   if (pendingSubmissions.length) {
@@ -72,12 +71,12 @@ function buildFocus({ pendingSubmissions, invitedTenancies, overdueInvoices, vac
 
   if (invitedTenancies.length) {
     return {
-      title: `Finish ${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''}`,
-      description: 'Profiles are ready. Upload the agreement and start the stay.',
-      tab: 'residents',
-      mode: 'movein',
-      tone: 'accent',
-    };
+        title: `Finish ${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''}`,
+        description: 'Profiles are ready. Upload the agreement and start the stay.',
+        tab: 'rooms',
+        mode: 'movein',
+        tone: 'accent',
+      };
   }
 
   if (overdueInvoices.length) {
@@ -94,15 +93,15 @@ function buildFocus({ pendingSubmissions, invitedTenancies, overdueInvoices, vac
     return {
       title: `${vacantRooms.length} room${vacantRooms.length > 1 ? 's' : ''} open`,
       description: 'Invite the next tenant when you are ready to fill it.',
-      tab: 'residents',
-      mode: 'movein',
-      tone: 'soft',
-    };
+        tab: 'rooms',
+        mode: 'movein',
+        tone: 'soft',
+      };
   }
 
   return {
     title: 'Everything looks calm today',
-    description: 'Use the tabs below when you want to update residents, rent, or profile details.',
+    description: 'Use the tabs below when you want to update rooms, rent, or property details.',
     tab: 'home',
     mode: null,
     tone: 'soft',
@@ -283,17 +282,17 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     home: {
       eyebrow: 'Landlord',
       title: state.property.name,
-      subtitle: 'Keep residents, collections, and setup in one simple mobile flow.',
+      subtitle: 'Stay ahead of occupancy, collections, and property setup in one simple flow.',
       highlights: [
         `${summary.availableRooms} open rooms`,
         `${summary.finalApprovals} final approvals`,
         `${summary.overdueInvoices} overdue`,
       ],
     },
-    residents: {
-      eyebrow: 'Residents',
-      title: 'Manage rooms and move-ins',
-      subtitle: 'Room status, invites, agreements, and move-outs all stay in one place.',
+    rooms: {
+      eyebrow: 'Rooms',
+      title: 'Run occupancy room by room',
+      subtitle: 'Each room shows whether it is open, waiting, active, or getting ready for move-out.',
       highlights: [`${activeTenancies.length} active`, `${invitedTenancies.length} waiting`, `${vacantRooms.length} open`],
     },
     rent: {
@@ -316,30 +315,30 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
   const openTask = (task) => {
     setActiveTab(task.tab);
-    if (task.tab === 'residents') {
-      setResidentMode(task.mode);
-    }
     if (task.tab === 'rent') {
       setRentMode(task.mode);
+    }
+    if (task.tab === 'rooms') {
+      setResidentMode(task.mode);
     }
   };
 
   const residentSectionCopy = {
     inventory: {
       title: 'Add a room',
-      subtitle: 'Create the room and meter first so you can assign tenants cleanly.',
+      subtitle: 'Create the room and meter first so every move-in starts from a real room.',
     },
     rooms: {
-      title: 'Room status',
-      subtitle: 'See which rooms are occupied, waiting, or ready for the next tenant.',
+      title: 'Room list',
+      subtitle: 'See which rooms are open, waiting, active, or ready for the next tenant.',
     },
     movein: {
-      title: 'Move in a tenant',
-      subtitle: 'Assign the room first, then finish the agreement in the same flow.',
+      title: 'Fill a room',
+      subtitle: 'Choose an open room, invite the tenant, and complete the agreement in one flow.',
     },
     moveout: {
-      title: 'End a stay',
-      subtitle: 'Schedule move-out or close the stay when the tenant leaves.',
+      title: 'Move out',
+      subtitle: 'Schedule the leaving date or close the stay once the room is fully clear.',
     },
   };
 
@@ -365,32 +364,32 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     },
     {
       key: 'movein',
-      title: 'Move in tenant',
-      description: 'Assign the room and complete the agreement in one landlord flow.',
+      title: 'Fill a room',
+      description: 'Start from an open room and complete the tenant move-in in one guided flow.',
       meta:
         invitedTenancies.length
           ? `${invitedTenancies.length} waiting for agreement`
           : vacantRooms.length
             ? `${vacantRooms.length} open room${vacantRooms.length === 1 ? '' : 's'}`
             : 'No room available',
-      status: 'Move-in',
+      status: 'Occupancy',
       onPress: () => setResidentMode('movein'),
     },
     {
+      key: 'rooms',
+      title: 'Room list',
+      description: 'See every room with its current occupancy state and next likely action.',
+      meta: `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'}`,
+      status: 'Rooms',
+      onPress: () => setResidentMode('rooms'),
+    },
+    {
       key: 'moveout',
-      title: 'End stay',
+      title: 'Move out',
       description: 'Schedule move-out or close a stay after the tenant leaves.',
       meta: activeTenancies.length ? `${activeTenancies.length} active stay${activeTenancies.length === 1 ? '' : 's'}` : 'No active stays',
       status: 'Move-out',
       onPress: () => setResidentMode('moveout'),
-    },
-    {
-      key: 'rooms',
-      title: 'View rooms',
-      description: 'See who is staying in each room and which room is available next.',
-      meta: `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'}`,
-      status: `${activeTenancies.length} active`,
-      onPress: () => setResidentMode('rooms'),
     },
   ];
 
@@ -404,22 +403,22 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         }
       : vacantRooms.length
         ? {
-            title: 'Assign each tenant to a room',
-            description: 'Pick an open room before you move the tenant further in the flow.',
-            actionLabel: 'Move in tenant',
-            onPress: () => setResidentMode('movein'),
-          }
+          title: 'Assign each tenant to a room',
+          description: 'Pick an open room before you move the tenant further in the flow.',
+          actionLabel: 'Fill a room',
+          onPress: () => setResidentMode('movein'),
+        }
       : invitedTenancies.length
       ? {
           title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's are' : ' is'} waiting`,
           description: 'The next useful action is to upload the agreement and start the stay.',
-          actionLabel: 'Move in tenant',
+          actionLabel: 'Fill a room',
           onPress: () => setResidentMode('movein'),
         }
         : {
-            title: 'Residents are under control',
-            description: 'Use the actions below when you want to add rooms, assign tenants, or manage active stays.',
-            actionLabel: 'View rooms',
+            title: 'Rooms are under control',
+            description: 'Use the actions below when you want to add rooms, fill open ones, or manage active stays.',
+            actionLabel: 'Room list',
             onPress: () => setResidentMode('rooms'),
           };
 
@@ -446,11 +445,11 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               onPress: () => setRentMode('ledger'),
             }
           : {
-              title: 'Collections look calm',
-              description: 'Use the actions below to monitor dues and close final approvals when they arrive.',
-              actionLabel: 'Track dues',
-              onPress: () => setRentMode('ledger'),
-            };
+            title: 'Collections look calm',
+            description: 'Use the actions below to monitor dues and close final approvals when they arrive.',
+            actionLabel: 'Track dues',
+            onPress: () => setRentMode('ledger'),
+          };
 
   const rentActions = [
     {
@@ -544,7 +543,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
             );
           })}
         </View>
-      ) : <EmptyState title="No rooms yet" description="Add your first room from Profile." />;
+      ) : <EmptyState title="No rooms yet" description="Add your first room here to start occupancy." />;
     }
 
     if (residentMode === 'movein') {
@@ -626,7 +625,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
           <PrimaryButton label="Mark complete" tone="secondary" onPress={() => handleAction(() => actions.closeTenancy(moveOutForm.tenancyId), 'Stay closed. The room is available again.')} />
         </InlineGroup>
       </>
-    ) : <EmptyState title="No active residents" description="Move-out controls appear here once there are active residents." />;
+    ) : <EmptyState title="No active stays" description="Move-out controls appear here once there are active stays." />;
   };
 
   const renderRentContent = () => {
@@ -773,13 +772,10 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     }
 
     return (
-      <>
-        <Field label="Room number" value={roomForm.label} onChangeText={(value) => setRoomForm((current) => ({ ...current, label: value }))} placeholder="303" />
-        <Field label="Floor" value={roomForm.floor} onChangeText={(value) => setRoomForm((current) => ({ ...current, floor: value }))} placeholder="3" />
-        <Field label="Meter serial number" value={roomForm.serialNumber} onChangeText={(value) => setRoomForm((current) => ({ ...current, serialNumber: value }))} placeholder="LT-303-C" />
-        <Field label="Meter opening reading" value={roomForm.openingReading} onChangeText={(value) => setRoomForm((current) => ({ ...current, openingReading: value }))} keyboardType="numeric" />
-        <PrimaryButton label="Add room" onPress={() => handleAction(async () => { await actions.addRoom(roomForm); setRoomForm({ label: '', floor: '', serialNumber: '', openingReading: '0' }); }, 'Room and meter added.')} />
-      </>
+      <EmptyState
+        title="Room setup lives in Rooms"
+        description="Use the Rooms tab when you want to add a room or fill an open one."
+      />
     );
   };
 
@@ -801,11 +797,11 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
       {activeTab === 'home' ? (
         <>
-          <FocusCard eyebrow="Today" title={focus.title} description={focus.description} tone={focus.tone} actionLabel={focus.mode ? 'Open next task' : null} onAction={focus.mode ? () => openTask({ tab: focus.tab, mode: focus.mode }) : undefined} />
-          <SectionCard title="At a glance" subtitle="The essential picture of the property right now." tone="soft">
+      <FocusCard eyebrow="Do now" title={focus.title} description={focus.description} tone={focus.tone} actionLabel={focus.mode ? 'Open next task' : null} onAction={focus.mode ? () => openTask({ tab: focus.tab, mode: focus.mode }) : undefined} />
+          <SectionCard title="Snapshot" subtitle="The essential picture of the property right now." tone="soft">
             <MetricRow items={[{ label: 'Living now', value: summary.livingNow }, { label: 'Empty rooms', value: summary.availableRooms }, { label: 'Leaving soon', value: summary.leavingSoon }, { label: 'Unpaid', value: summary.unpaidNow }]} />
           </SectionCard>
-          <SectionCard title="Move-outs to watch" subtitle="Know who is leaving and when the room will open again.">
+          <SectionCard title="Room changes coming up" subtitle="Know who is leaving and when the next room will open.">
             {moveOutTenancies.length ? (
               <View style={styles.stack}>
                 {moveOutTenancies.map((tenancy) => {
@@ -829,7 +825,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               <EmptyState title="No planned move-outs" description="No resident is marked as leaving right now." />
             )}
           </SectionCard>
-          <SectionCard title="Collections to watch" subtitle="See who has not paid, when the due date is, and whether reminders have gone out.">
+          <SectionCard title="Rent to follow up" subtitle="See who has not paid, when rent is due, and whether reminders have gone out.">
             {collectionWatch.length ? (
               <View style={styles.stack}>
                 {collectionWatch.map((invoice) => (
@@ -850,7 +846,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               <EmptyState title="All dues are clear" description="No tenant is currently waiting on rent follow-up." />
             )}
           </SectionCard>
-          <SectionCard title="Operations" subtitle="Reference details that help you stay ahead without digging.">
+          <SectionCard title="Property snapshot" subtitle="Reference details that help you stay ahead without digging.">
             <KeyValueRow label="Payout UPI" value={state.settlementAccount.upiId} />
             <KeyValueRow label="Electricity rate" value={`${state.property.defaultTariff}/unit`} />
             <KeyValueRow label="Final approvals waiting" value={String(summary.finalApprovals)} />
@@ -858,17 +854,17 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         </>
       ) : null}
 
-      {activeTab === 'residents' ? (
+      {activeTab === 'rooms' ? (
         <>
           <FocusCard
-            eyebrow="Residents"
+            eyebrow="Rooms"
             title={residentFocus.title}
             description={residentFocus.description}
             tone="soft"
             actionLabel={residentFocus.actionLabel}
             onAction={residentFocus.onPress}
           />
-          <SectionCard title="Resident actions" subtitle="Choose the job you want to do now.">
+          <SectionCard title="Room actions" subtitle="Choose the room job you want to do now.">
             <View style={styles.stack}>
               {residentActions.map((action) => {
                 const isActive = residentMode === action.key;
@@ -878,7 +874,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                     <View style={styles.residentActionCopy}>
                       <InlineGroup>
                         <Text style={styles.residentActionTitle}>{action.title}</Text>
-                        {isActive ? <StatusBadge label="READY" /> : null}
+                        {isActive ? <StatusBadge label="OPEN" /> : null}
                       </InlineGroup>
                       <Text style={styles.residentActionDescription}>{action.description}</Text>
                       <InlineGroup>
@@ -928,7 +924,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                     <View style={styles.residentActionCopy}>
                       <InlineGroup>
                         <Text style={styles.residentActionTitle}>{action.title}</Text>
-                        {isActive ? <StatusBadge label="READY" /> : null}
+                        {isActive ? <StatusBadge label="OPEN" /> : null}
                       </InlineGroup>
                       <Text style={styles.residentActionDescription}>{action.description}</Text>
                       <InlineGroup>
@@ -966,7 +962,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
             <KeyValueRow label="Phone" value={state.property.managerPhone} />
             <PrimaryButton label="Log out" tone="secondary" onPress={onLogout} />
           </SectionCard>
-          <SectionCard title="Setup" subtitle="Change details only when you need to.">
+          <SectionCard title="Property settings" subtitle="Change details only when something changes.">
             <ChoiceChips options={profileModes} value={profileMode} onChange={setProfileMode} />
             {renderProfileContent()}
           </SectionCard>

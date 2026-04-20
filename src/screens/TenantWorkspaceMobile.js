@@ -28,13 +28,46 @@ const { deriveInvoiceStatus } = require('../lib/rentEngine');
 const tenantTabs = [
   { label: 'Home', value: 'home' },
   { label: 'Rent', value: 'rent' },
-  { label: 'Profile', value: 'profile' },
+  { label: 'My stay', value: 'stay' },
 ];
 
 const profileModes = [
-  { label: 'Details', value: 'details' },
+  { label: 'Personal details', value: 'details' },
   { label: 'Agreement', value: 'agreement' },
 ];
+
+function formatInvoiceStateLabel(status) {
+  const labels = {
+    DUE: 'Bill ready',
+    OVERDUE: 'Overdue',
+    PAYMENT_SUBMITTED: 'Waiting for landlord approval',
+    PAID: 'Paid',
+    ISSUED: 'Bill ready',
+    DRAFT: 'In progress',
+  };
+
+  return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
+}
+
+function formatMeterStateLabel(status) {
+  const labels = {
+    PENDING_REVIEW: 'Waiting for landlord approval',
+    APPROVED: 'Approved',
+    REJECTED: 'Needs to be submitted again',
+  };
+
+  return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
+}
+
+function formatSubmissionStateLabel(status) {
+  const labels = {
+    PENDING_REVIEW: 'Waiting for landlord approval',
+    APPROVED: 'Approved',
+    REJECTED: 'Needs a fresh proof upload',
+  };
+
+  return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
+}
 
 function UploadPreview({ title, subtitle, uri }) {
   if (!uri) {
@@ -173,9 +206,9 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   if (!tenant) {
     return (
       <ScreenSurface
-        hero={<PageHeader eyebrow="Tenant" title="Tenant not found" subtitle="Use one of the demo tenant numbers from the sign-up screen." />}
+        hero={<PageHeader eyebrow="Tenant" title="Stay not found" subtitle="We could not find a stay linked to this number yet." />}
       >
-        <SectionCard title="Session" subtitle="This demo login does not match a tenant record.">
+        <SectionCard title="Session" subtitle="Ask your landlord to invite this mobile number first.">
           <PrimaryButton label="Log out" onPress={onLogout} />
         </SectionCard>
       </ScreenSurface>
@@ -185,7 +218,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   const currentDue =
     activeInvoice && ['DUE', 'OVERDUE', 'PAYMENT_SUBMITTED'].includes(activeInvoice.derivedStatus)
       ? formatCurrency(activeInvoice.totalAmount)
-      : 'No bill';
+      : 'Nothing due';
   const meterPreviewUri =
     meterForm.photoUpload?.previewUri || resolveUploadUrl(activeReading?.photoLabel);
   const paymentProofUri =
@@ -195,20 +228,20 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     ? {
         title: 'Finish your profile',
         description: 'Your landlord can start the agreement after this step.',
-        tab: 'profile',
+        tab: 'stay',
         tone: 'accent',
       }
     : !contract
       ? {
           title: 'Agreement is on the way',
           description: 'Your landlord is preparing the agreement now.',
-          tab: 'profile',
+          tab: 'stay',
           tone: 'soft',
         }
       : !activeInvoice
         ? {
-            title: "Submit this month's meter reading",
-            description: 'Upload the meter photo once and your bill is created automatically.',
+            title: 'Submit this month’s reading',
+            description: 'Upload the meter photo once. Your bill will be ready right after that.',
             tab: 'rent',
             tone: 'accent',
           }
@@ -248,22 +281,22 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     },
     rent: {
       eyebrow: 'Rent',
-      title: activeInvoice ? formatCurrency(activeInvoice.totalAmount) : "Create this month's bill",
+      title: activeInvoice ? formatCurrency(activeInvoice.totalAmount) : 'Submit this month’s reading',
       subtitle: activeInvoice
         ? 'Your bill is already calculated from the meter reading. Pay once, upload proof once.'
-        : "Upload the new reading and meter photo to generate this month's bill automatically.",
+        : 'Upload the new meter reading and photo so your bill is ready for payment.',
       highlights: [
         roomMeter ? `Last approved ${roomMeter.lastReading}` : 'No meter',
-        activeReading?.status || 'READY',
-        activeInvoice ? activeInvoice.derivedStatus : formatMonth(currentMonth),
+        activeReading ? formatMeterStateLabel(activeReading.status) : 'Waiting for your reading',
+        activeInvoice ? formatInvoiceStateLabel(activeInvoice.derivedStatus) : formatMonth(currentMonth),
       ],
     },
-    profile: {
-      eyebrow: 'Profile',
+    stay: {
+      eyebrow: 'My stay',
       title: 'Your details and agreement',
-      subtitle: 'Keep your move-in details and agreement together in one place.',
+      subtitle: 'Keep your room, agreement, and personal details together in one place.',
       highlights: [
-        tenant.profileStatus || 'PENDING',
+        tenant.profileStatus === 'COMPLETE' ? 'Details complete' : 'Details pending',
         contract ? 'Agreement live' : 'Agreement pending',
         `${submissions.length} payment update${submissions.length === 1 ? '' : 's'}`,
       ],
@@ -278,7 +311,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
             <View key={`reading-${activeReading.id}`} style={styles.listCard}>
               <InlineGroup>
                 <Text style={styles.listTitle}>Meter update for {formatMonth(activeReading.month)}</Text>
-                <StatusBadge label={activeReading.status} />
+                <StatusBadge label={formatMeterStateLabel(activeReading.status)} />
               </InlineGroup>
               <Text style={styles.listText}>
                 {activeReading.openingReading} to {activeReading.closingReading}
@@ -289,7 +322,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
             <View key={submission.id} style={styles.listCard}>
               <InlineGroup>
                 <Text style={styles.listTitle}>Payment proof shared</Text>
-                <StatusBadge label={submission.status} />
+                <StatusBadge label={formatSubmissionStateLabel(submission.status)} />
               </InlineGroup>
               <Text style={styles.listText}>{submission.utr}</Text>
             </View>
@@ -343,7 +376,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
             <KeyValueRow label="Agreement" value={contract ? 'Active' : 'Pending'} />
             <KeyValueRow
               label="This month"
-              value={activeInvoice ? activeInvoice.derivedStatus.replaceAll('_', ' ') : 'Bill not created'}
+              value={activeInvoice ? formatInvoiceStateLabel(activeInvoice.derivedStatus) : 'Reading not submitted'}
             />
           </SectionCard>
           {renderActivityCard()}
@@ -387,7 +420,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                       uri={meterForm.photoUpload?.previewUri}
                     />
                     <PrimaryButton
-                      label="Create this month's bill"
+                      label="Submit reading"
                       onPress={() =>
                         handleAction(
                           () =>
@@ -397,7 +430,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                               closingReading: Number(meterForm.closingReading),
                               photoUpload: meterForm.photoUpload,
                             }),
-                          "This month's bill is ready. You can pay it now.",
+                          'Reading submitted. Your bill is ready to pay now.',
                         )
                       }
                     />
@@ -405,7 +438,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                 ) : (
                   <>
                     <InlineGroup>
-                      <StatusBadge label={activeInvoice.derivedStatus} />
+                      <StatusBadge label={formatInvoiceStateLabel(activeInvoice.derivedStatus)} />
                       <Text style={styles.listText}>
                         {formatMonth(activeInvoice.month)} | due {formatDate(activeInvoice.dueDate)}
                       </Text>
@@ -556,15 +589,15 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
         </>
       ) : null}
 
-      {activeTab === 'profile' ? (
+      {activeTab === 'stay' ? (
         <>
-          <SectionCard title="Your stay" subtitle="Profile, room, and account actions live here." tone="soft">
+          <SectionCard title="Your stay" subtitle="Room, agreement, and account actions live here." tone="soft">
             <KeyValueRow label="Room" value={room ? `Room ${room.label}` : 'Pending'} />
-            <KeyValueRow label="Profile status" value={tenant.profileStatus || 'PENDING'} />
+            <KeyValueRow label="Details" value={tenant.profileStatus === 'COMPLETE' ? 'Complete' : 'Pending'} />
             <KeyValueRow label="Agreement" value={contract ? 'Active' : 'Pending'} />
             <PrimaryButton label="Log out" tone="secondary" onPress={onLogout} />
           </SectionCard>
-          <SectionCard title="Profile" subtitle="Update only the details your landlord needs.">
+          <SectionCard title="My stay" subtitle="Update your details and review your agreement here.">
             <ChoiceChips options={profileModes} value={profileMode} onChange={setProfileMode} />
             {profileMode === 'details' ? (
               <>
@@ -582,6 +615,18 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                 <KeyValueRow label="Monthly rent" value={formatCurrency(contract.rentAmount)} />
                 <KeyValueRow label="Deposit" value={formatCurrency(contract.depositAmount)} />
                 <KeyValueRow label="Monthly due date" value={`Day ${contract.dueDay} of each month`} />
+                {Array.isArray(contract.imageLabels) && contract.imageLabels.length ? (
+                  <View style={styles.stack}>
+                    {contract.imageLabels.map((imageLabel, index) => (
+                      <UploadPreview
+                        key={`${contract.id}-page-${index}`}
+                        title={`Agreement page ${index + 1}`}
+                        subtitle="Uploaded agreement image"
+                        uri={resolveUploadUrl(imageLabel)}
+                      />
+                    ))}
+                  </View>
+                ) : null}
               </>
             ) : <EmptyState title="Agreement not active yet" description="Once your landlord confirms the agreement, the details will appear here." />}
           </SectionCard>
