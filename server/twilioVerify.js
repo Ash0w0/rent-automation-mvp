@@ -58,6 +58,13 @@ async function checkPhoneVerification(phone, code) {
   }
 
   const client = createTwilioClient();
+  const ab = client.verify.v2
+    .services(process.env.TWILIO_VERIFY_SERVICE_SID)
+    .verificationChecks.create({
+      to: normalizePhoneNumber(phone),
+      code: String(code || '').trim(),
+    });
+  console.log(ab, "ab")
   return client.verify.v2
     .services(process.env.TWILIO_VERIFY_SERVICE_SID)
     .verificationChecks.create({
