@@ -466,6 +466,12 @@ function createRentBackend(options = {}) {
     async requestOtp({ role, phone }, requestMeta = {}) {
       return run(async () => {
         const rateKey = buildOtpRateKey(role, phone, requestMeta.ipAddress);
+        const maskedPhone = String(phone || '').replace(/\D+/g, '').slice(-4);
+        console.log('[auth] requestOtp received', {
+          role,
+          phoneSuffix: maskedPhone ? `***${maskedPhone}` : '[empty]',
+          hasIpAddress: Boolean(requestMeta.ipAddress),
+        });
         takeRateLimitedSlot(otpRequestTracker, rateKey, {
           windowMs: OTP_REQUEST_WINDOW_MS,
           maxAttempts: OTP_REQUEST_MAX_ATTEMPTS,
@@ -474,9 +480,24 @@ function createRentBackend(options = {}) {
 
         try {
           await findAuthIdentity(prisma, role, phone);
+          console.log('[auth] identity lookup passed', {
+            role,
+            phoneSuffix: maskedPhone ? `***${maskedPhone}` : '[empty]',
+          });
           await startPhoneVerification(phone);
+          console.log('[auth] otp request completed', {
+            role,
+            phoneSuffix: maskedPhone ? `***${maskedPhone}` : '[empty]',
+          });
         } catch (_error) {
-          console.log(_error, "error")
+          console.log('[auth] otp request failed', {
+            role,
+            phoneSuffix: maskedPhone ? `***${maskedPhone}` : '[empty]',
+            message: _error?.message || String(_error),
+            status: _error?.status || null,
+            code: _error?.code || null,
+            moreInfo: _error?.moreInfo || null,
+          });
           return {
             ok: true,
             status: 'pending',
