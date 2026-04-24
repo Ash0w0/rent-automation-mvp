@@ -33,7 +33,8 @@ const ownerTabs = [
 
 const residentModes = [
   { label: 'Add room', value: 'inventory' },
-  { label: 'Fill a room', value: 'movein' },
+  { label: 'Invite tenant', value: 'invite' },
+  { label: 'Complete move-in', value: 'activate' },
   { label: 'Room list', value: 'rooms' },
   { label: 'Move out', value: 'moveout' },
 ];
@@ -48,15 +49,15 @@ const profileModes = [
   { label: 'Payouts', value: 'collection' },
 ];
 
-function buildFocus({ pendingSubmissions, invitedTenancies, overdueInvoices, vacantRooms }) {
-  if (!vacantRooms.length && !invitedTenancies.length) {
+function buildFocus({ pendingSubmissions, invitedTenancies, overdueInvoices, vacantRooms, roomCount }) {
+  if (!roomCount) {
     return {
-        title: 'Set up rooms first',
-        description: 'Create the rooms before you start assigning tenants.',
-        tab: 'rooms',
-        mode: 'inventory',
-        tone: 'accent',
-      };
+      title: 'Set up rooms first',
+      description: 'Create the rooms before you start assigning tenants.',
+      tab: 'rooms',
+      mode: 'inventory',
+      tone: 'accent',
+    };
   }
 
   if (pendingSubmissions.length) {
@@ -71,12 +72,12 @@ function buildFocus({ pendingSubmissions, invitedTenancies, overdueInvoices, vac
 
   if (invitedTenancies.length) {
     return {
-        title: `Finish ${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''}`,
-        description: 'Profiles are ready. Upload the agreement and start the stay.',
-        tab: 'rooms',
-        mode: 'movein',
-        tone: 'accent',
-      };
+      title: `Finish ${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''}`,
+      description: 'Profiles are ready. Upload the agreement and start the stay.',
+      tab: 'rooms',
+      mode: 'activate',
+      tone: 'accent',
+    };
   }
 
   if (overdueInvoices.length) {
@@ -93,10 +94,10 @@ function buildFocus({ pendingSubmissions, invitedTenancies, overdueInvoices, vac
     return {
       title: `${vacantRooms.length} room${vacantRooms.length > 1 ? 's' : ''} open`,
       description: 'Invite the next tenant when you are ready to fill it.',
-        tab: 'rooms',
-        mode: 'movein',
-        tone: 'soft',
-      };
+      tab: 'rooms',
+      mode: 'invite',
+      tone: 'soft',
+    };
   }
 
   return {
@@ -118,6 +119,46 @@ function UploadPreview({ title, subtitle, uri }) {
       <Text style={styles.previewTitle}>{title}</Text>
       {subtitle ? <Text style={styles.previewSubtitle}>{subtitle}</Text> : null}
       <Image source={{ uri }} style={styles.previewImage} resizeMode="cover" />
+    </View>
+  );
+}
+
+function PipelineStepCard({ action, isActive, onPress }) {
+  return (
+    <View style={[styles.pipelineStep, isActive && styles.pipelineStepActive]}>
+      <View style={styles.pipelineStepNumber}>
+        <Text style={styles.pipelineStepNumberText}>{action.step}</Text>
+      </View>
+      <View style={styles.pipelineStepCopy}>
+        <InlineGroup>
+          <Text style={styles.pipelineStepTitle}>{action.title}</Text>
+          {isActive ? <StatusBadge label="OPEN" /> : null}
+        </InlineGroup>
+        <Text style={styles.pipelineStepDescription}>{action.description}</Text>
+        <Text style={styles.pipelineStepMeta}>{action.meta}</Text>
+      </View>
+      <PrimaryButton
+        label={isActive ? 'Open' : 'Go'}
+        tone={isActive ? 'primary' : 'secondary'}
+        compact
+        onPress={onPress}
+      />
+    </View>
+  );
+}
+
+function QueueItemCard({ item }) {
+  return (
+    <View style={styles.queueItem}>
+      <View style={styles.queueCopy}>
+        <InlineGroup>
+          <Text style={styles.queueTitle}>{item.title}</Text>
+          {item.badge ? <StatusBadge label={item.badge} /> : null}
+        </InlineGroup>
+        <Text style={styles.queueDescription}>{item.description}</Text>
+        {item.meta ? <Text style={styles.queueMeta}>{item.meta}</Text> : null}
+      </View>
+      <PrimaryButton label={item.actionLabel} tone="secondary" compact onPress={item.onPress} />
     </View>
   );
 }
@@ -260,6 +301,18 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     }
   }, [moveOutForm.tenancyId, activeTenancies]);
 
+  useEffect(() => {
+    if (!feedback) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setFeedback(null);
+    }, 3200);
+
+    return () => clearTimeout(timeoutId);
+  }, [feedback]);
+
   const summary = {
     occupiedRooms: state.rooms.filter((room) => room.status === 'OCCUPIED').length,
     availableRooms: vacantRooms.length,
@@ -276,6 +329,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     invitedTenancies,
     overdueInvoices,
     vacantRooms,
+    roomCount: state.rooms.length,
   });
 
   const heroCopy = {
@@ -332,9 +386,13 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       title: 'Room list',
       subtitle: 'See which rooms are open, waiting, active, or ready for the next tenant.',
     },
-    movein: {
-      title: 'Fill a room',
-      subtitle: 'Choose an open room, invite the tenant, and complete the agreement in one flow.',
+    invite: {
+      title: 'Invite tenant',
+      subtitle: 'Assign an open room first so the tenant enters the flow with the right room.',
+    },
+    activate: {
+      title: 'Complete move-in',
+      subtitle: 'Only invited tenants appear here so the agreement step stays clean and focused.',
     },
     moveout: {
       title: 'Move out',
@@ -353,28 +411,43 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     },
   };
 
-  const residentActions = [
+  const moveInPipelineActions = [
     {
       key: 'inventory',
+      step: '1',
       title: 'Add room',
-      description: 'Create a room first so every tenant can be assigned cleanly.',
+      description: 'Create the physical room and attach its meter.',
       meta: `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'} created`,
       status: 'Setup',
       onPress: () => setResidentMode('inventory'),
     },
     {
-      key: 'movein',
-      title: 'Fill a room',
-      description: 'Start from an open room and complete the tenant move-in in one guided flow.',
+      key: 'invite',
+      step: '2',
+      title: 'Invite tenant',
+      description: 'Pick an open room and reserve it for the next tenant.',
+      meta:
+        vacantRooms.length
+          ? `${vacantRooms.length} open room${vacantRooms.length === 1 ? '' : 's'}`
+          : 'No room available',
+      status: 'Occupancy',
+      onPress: () => setResidentMode('invite'),
+    },
+    {
+      key: 'activate',
+      step: '3',
+      title: 'Complete move-in',
+      description: 'Upload agreement details and start the active stay.',
       meta:
         invitedTenancies.length
           ? `${invitedTenancies.length} waiting for agreement`
-          : vacantRooms.length
-            ? `${vacantRooms.length} open room${vacantRooms.length === 1 ? '' : 's'}`
-            : 'No room available',
-      status: 'Occupancy',
-      onPress: () => setResidentMode('movein'),
+          : 'Nothing waiting',
+      status: 'Move-in',
+      onPress: () => setResidentMode('activate'),
     },
+  ];
+
+  const roomManagementActions = [
     {
       key: 'rooms',
       title: 'Room list',
@@ -403,21 +476,21 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         }
       : vacantRooms.length
         ? {
-          title: 'Assign each tenant to a room',
-          description: 'Pick an open room before you move the tenant further in the flow.',
-          actionLabel: 'Fill a room',
-          onPress: () => setResidentMode('movein'),
+          title: 'Assign the tenant to a room first',
+          description: 'Keep room assignment separate from move-in so the flow stays easy to follow.',
+          actionLabel: 'Invite tenant',
+          onPress: () => setResidentMode('invite'),
         }
       : invitedTenancies.length
       ? {
           title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's are' : ' is'} waiting`,
           description: 'The next useful action is to upload the agreement and start the stay.',
-          actionLabel: 'Fill a room',
-          onPress: () => setResidentMode('movein'),
+          actionLabel: 'Complete move-in',
+          onPress: () => setResidentMode('activate'),
         }
         : {
             title: 'Rooms are under control',
-            description: 'Use the actions below when you want to add rooms, fill open ones, or manage active stays.',
+            description: 'Use the actions below when you want to add rooms, invite tenants, complete move-ins, or manage active stays.',
             actionLabel: 'Room list',
             onPress: () => setResidentMode('rooms'),
           };
@@ -475,6 +548,59 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     },
   ];
 
+  const ownerQueue = [
+    pendingSubmissions.length
+      ? {
+          title: `${pendingSubmissions.length} final approval${pendingSubmissions.length > 1 ? 's' : ''}`,
+          description: 'Payment proof is waiting for your final review.',
+          meta: 'Includes bill, meter photo, UTR, and payment screenshot.',
+          badge: 'PENDING_REVIEW',
+          actionLabel: 'Review',
+          onPress: () => openTask({ tab: 'rent', mode: 'payment-review' }),
+        }
+      : null,
+    invitedTenancies.length
+      ? {
+          title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''} waiting`,
+          description: 'Agreement details are the only thing left before the stay becomes active.',
+          meta: 'Finish this after the tenant has been assigned to a room.',
+          badge: 'INVITED',
+          actionLabel: 'Complete',
+          onPress: () => openTask({ tab: 'rooms', mode: 'activate' }),
+        }
+      : null,
+    vacantRooms.length
+      ? {
+          title: `${vacantRooms.length} open room${vacantRooms.length > 1 ? 's' : ''}`,
+          description: 'There is room to invite the next tenant.',
+          meta: 'Assign room first, then complete move-in later.',
+          badge: 'VACANT',
+          actionLabel: 'Invite',
+          onPress: () => openTask({ tab: 'rooms', mode: 'invite' }),
+        }
+      : null,
+    overdueInvoices.length
+      ? {
+          title: `${overdueInvoices.length} overdue bill${overdueInvoices.length > 1 ? 's' : ''}`,
+          description: 'Collections need follow-up before the delay grows.',
+          meta: 'Check due dates, reminders, and tenant status.',
+          badge: 'OVERDUE',
+          actionLabel: 'Track',
+          onPress: () => openTask({ tab: 'rent', mode: 'ledger' }),
+        }
+      : null,
+    moveOutTenancies.length
+      ? {
+          title: `${moveOutTenancies.length} planned move-out${moveOutTenancies.length > 1 ? 's' : ''}`,
+          description: 'A room is scheduled to open soon.',
+          meta: `Next: Room ${getRoom(moveOutTenancies[0].roomId)?.label || '-'}`,
+          badge: 'MOVE_OUT_SCHEDULED',
+          actionLabel: 'Manage',
+          onPress: () => openTask({ tab: 'rooms', mode: 'moveout' }),
+        }
+      : null,
+  ].filter(Boolean);
+
   const handleAction = async (callback, successMessage) => {
     try {
       setFeedback(null);
@@ -517,7 +643,11 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
           <Field label="Floor" value={roomForm.floor} onChangeText={(value) => setRoomForm((current) => ({ ...current, floor: value }))} placeholder="3" />
           <Field label="Meter serial number" value={roomForm.serialNumber} onChangeText={(value) => setRoomForm((current) => ({ ...current, serialNumber: value }))} placeholder="LT-303-C" />
           <Field label="Meter opening reading" value={roomForm.openingReading} onChangeText={(value) => setRoomForm((current) => ({ ...current, openingReading: value }))} keyboardType="numeric" />
-          <PrimaryButton label="Create room" onPress={() => handleAction(async () => { await actions.addRoom(roomForm); setRoomForm({ label: '', floor: '', serialNumber: '', openingReading: '0' }); }, 'Room and meter added.')} />
+          <PrimaryButton label="Create room" onPress={() => handleAction(async () => {
+            await actions.addRoom(roomForm);
+            setRoomForm({ label: '', floor: '', serialNumber: '', openingReading: '0' });
+            setResidentMode('invite');
+          }, 'Room added. You can assign a tenant next.')} />
         </>
       );
     }
@@ -546,24 +676,32 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       ) : <EmptyState title="No rooms yet" description="Add your first room here to start occupancy." />;
     }
 
-    if (residentMode === 'movein') {
+    if (residentMode === 'invite') {
+      return vacantRooms.length ? (
+        <View style={styles.inlineSection}>
+          <Text style={styles.inlineSectionTitle}>Invite a tenant to a room</Text>
+          <Text style={styles.inlineSectionSubtitle}>This step only reserves the room and starts tenant onboarding.</Text>
+          <Field label="Tenant name" value={inviteForm.fullName} onChangeText={(value) => setInviteForm((current) => ({ ...current, fullName: value }))} />
+          <Field label="Tenant mobile number" value={inviteForm.phone} onChangeText={(value) => setInviteForm((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" />
+          <ChoiceChips value={inviteForm.roomId} onChange={(value) => setInviteForm((current) => ({ ...current, roomId: value }))} options={vacantRooms.map((room) => ({ value: room.id, label: `Room ${room.label}`, meta: `Floor ${room.floor}` }))} />
+          <PrimaryButton label="Assign tenant to room" onPress={() => handleAction(async () => {
+            await actions.inviteTenant(inviteForm);
+            setInviteForm({ fullName: '', phone: '', roomId: '' });
+            setResidentMode('activate');
+          }, 'Tenant added to the room. Complete move-in next.')} />
+        </View>
+      ) : (
+        <EmptyState title="No open rooms" description="Add a room first or wait until a room becomes available." />
+      );
+    }
+
+    if (residentMode === 'activate') {
       return (
         <View style={styles.stack}>
-          {vacantRooms.length ? (
-            <View style={styles.inlineSection}>
-              <Text style={styles.inlineSectionTitle}>1. Assign room</Text>
-              <Text style={styles.inlineSectionSubtitle}>Pick an open room and reserve it for the tenant.</Text>
-              <Field label="Tenant name" value={inviteForm.fullName} onChangeText={(value) => setInviteForm((current) => ({ ...current, fullName: value }))} />
-              <Field label="Tenant mobile number" value={inviteForm.phone} onChangeText={(value) => setInviteForm((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" />
-              <ChoiceChips value={inviteForm.roomId} onChange={(value) => setInviteForm((current) => ({ ...current, roomId: value }))} options={vacantRooms.map((room) => ({ value: room.id, label: `Room ${room.label}`, meta: `Floor ${room.floor}` }))} />
-              <PrimaryButton label="Assign room" onPress={() => handleAction(async () => { await actions.inviteTenant(inviteForm); setInviteForm({ fullName: '', phone: '', roomId: '' }); }, 'Tenant assigned to the room and onboarding started.')} />
-            </View>
-          ) : null}
-
           {invitedTenancies.length ? (
             <View style={styles.inlineSection}>
-              <Text style={styles.inlineSectionTitle}>2. Finish move-in</Text>
-              <Text style={styles.inlineSectionSubtitle}>Upload the agreement and activate the stay.</Text>
+              <Text style={styles.inlineSectionTitle}>Complete move-in</Text>
+              <Text style={styles.inlineSectionSubtitle}>Upload the agreement and activate the stay for an already assigned tenant.</Text>
               <ChoiceChips value={contractForm.tenancyId} onChange={(value) => setContractForm((current) => ({ ...current, tenancyId: value }))} options={invitedTenancies.map((tenancy) => ({ value: tenancy.id, label: getTenant(tenancy.tenantId)?.fullName || 'Tenant', meta: `Room ${getRoom(tenancy.roomId)?.label}` }))} />
               <View style={styles.contractUploadBlock}>
                 <Text style={styles.contractUploadTitle}>Agreement images</Text>
@@ -605,12 +743,13 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                   ...current,
                   contractUploads: [],
                 }));
-              }, 'Agreement images saved and stay is now active.')} />
+                setResidentMode('rooms');
+              }, 'Move-in complete. The stay is now active.')} />
             </View>
           ) : null}
 
-          {!vacantRooms.length && !invitedTenancies.length ? (
-            <EmptyState title="No move-ins ready" description="Add a room first, then assign a tenant to begin the move-in flow." />
+          {!invitedTenancies.length ? (
+            <EmptyState title="No move-ins ready" description="Invite a tenant to a room first. Once that is done, the agreement step will appear here." />
           ) : null}
         </View>
       );
@@ -780,6 +919,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   };
 
   return (
+    <View style={styles.screenWrap}>
     <ScreenSurface
       hero={
         <PageHeader
@@ -793,57 +933,22 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     >
       {state.isSyncing ? <Banner tone="info" message="Updating the landlord workspace..." /> : null}
       {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
-      {feedback ? <Banner tone={feedback.tone} message={feedback.text} /> : null}
 
       {activeTab === 'home' ? (
         <>
-      <FocusCard eyebrow="Do now" title={focus.title} description={focus.description} tone={focus.tone} actionLabel={focus.mode ? 'Open next task' : null} onAction={focus.mode ? () => openTask({ tab: focus.tab, mode: focus.mode }) : undefined} />
+          <FocusCard eyebrow="Do now" title={focus.title} description={focus.description} tone={focus.tone} actionLabel={focus.mode ? 'Open next task' : null} onAction={focus.mode ? () => openTask({ tab: focus.tab, mode: focus.mode }) : undefined} />
           <SectionCard title="Snapshot" subtitle="The essential picture of the property right now." tone="soft">
             <MetricRow items={[{ label: 'Living now', value: summary.livingNow }, { label: 'Empty rooms', value: summary.availableRooms }, { label: 'Leaving soon', value: summary.leavingSoon }, { label: 'Unpaid', value: summary.unpaidNow }]} />
           </SectionCard>
-          <SectionCard title="Room changes coming up" subtitle="Know who is leaving and when the next room will open.">
-            {moveOutTenancies.length ? (
+          <SectionCard title="Today's queue" subtitle="The next actions worth your attention.">
+            {ownerQueue.length ? (
               <View style={styles.stack}>
-                {moveOutTenancies.map((tenancy) => {
-                  const tenant = getTenant(tenancy.tenantId);
-                  const room = getRoom(tenancy.roomId);
-
-                  return (
-                    <View key={tenancy.id} style={styles.listCard}>
-                      <InlineGroup>
-                        <Text style={styles.listTitle}>{tenant?.fullName || 'Tenant'}</Text>
-                        <StatusBadge label={tenancy.status} />
-                      </InlineGroup>
-                      <Text style={styles.listText}>
-                        Room {room?.label || '-'} | leaving on {formatDate(tenancy.moveOutDate)}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <EmptyState title="No planned move-outs" description="No resident is marked as leaving right now." />
-            )}
-          </SectionCard>
-          <SectionCard title="Rent to follow up" subtitle="See who has not paid, when rent is due, and whether reminders have gone out.">
-            {collectionWatch.length ? (
-              <View style={styles.stack}>
-                {collectionWatch.map((invoice) => (
-                  <View key={invoice.id} style={styles.listCard}>
-                    <InlineGroup>
-                      <Text style={styles.listTitle}>{invoice.tenantName}</Text>
-                      <StatusBadge label={invoice.derivedStatus} />
-                    </InlineGroup>
-                    <Text style={styles.listText}>
-                      Room {invoice.roomLabel} | {formatCurrency(invoice.totalAmount)} | {invoice.dueWindow}
-                    </Text>
-                    <KeyValueRow label="Due date" value={formatDate(invoice.dueDate)} />
-                    <KeyValueRow label="Reminder" value={invoice.reminderState} />
-                  </View>
+                {ownerQueue.map((item) => (
+                  <QueueItemCard key={item.title} item={item} />
                 ))}
               </View>
             ) : (
-              <EmptyState title="All dues are clear" description="No tenant is currently waiting on rent follow-up." />
+              <EmptyState title="No urgent work" description="Rooms, move-ins, and rent are calm right now." />
             )}
           </SectionCard>
           <SectionCard title="Property snapshot" subtitle="Reference details that help you stay ahead without digging.">
@@ -864,34 +969,44 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
             actionLabel={residentFocus.actionLabel}
             onAction={residentFocus.onPress}
           />
-          <SectionCard title="Room actions" subtitle="Choose the room job you want to do now.">
-            <View style={styles.stack}>
-              {residentActions.map((action) => {
+          <SectionCard title="Move-in pipeline" subtitle="Do these in order. The active workspace opens below.">
+            <View style={styles.pipelineWrap}>
+              {moveInPipelineActions.map((action) => (
+                <PipelineStepCard
+                  key={action.key}
+                  action={action}
+                  isActive={residentMode === action.key}
+                  onPress={action.onPress}
+                />
+              ))}
+            </View>
+          </SectionCard>
+
+          <SectionCard
+            title={residentSectionCopy[residentMode].title}
+            subtitle={residentSectionCopy[residentMode].subtitle}
+            tone={['inventory', 'invite', 'activate'].includes(residentMode) ? 'accent' : 'default'}
+          >
+            <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
+          </SectionCard>
+
+          <SectionCard title="Manage stays" subtitle="Use these after rooms and move-ins are already running.">
+            <View style={styles.managementGrid}>
+              {roomManagementActions.map((action) => {
                 const isActive = residentMode === action.key;
 
                 return (
-                  <View key={action.key} style={[styles.residentActionCard, isActive && styles.residentActionCardActive]}>
-                    <View style={styles.residentActionCopy}>
+                  <View key={action.key} style={[styles.managementCard, isActive && styles.managementCardActive]}>
+                    <View style={styles.managementCopy}>
                       <InlineGroup>
-                        <Text style={styles.residentActionTitle}>{action.title}</Text>
+                        <Text style={styles.managementTitle}>{action.title}</Text>
                         {isActive ? <StatusBadge label="OPEN" /> : null}
                       </InlineGroup>
-                      <Text style={styles.residentActionDescription}>{action.description}</Text>
-                      <InlineGroup>
-                        <Text style={styles.residentActionMeta}>{action.status}</Text>
-                        <Text style={styles.residentActionDivider}>|</Text>
-                        <Text style={styles.residentActionMeta}>{action.meta}</Text>
-                      </InlineGroup>
-                      {isActive ? (
-                        <View style={styles.residentActionPanel}>
-                          <Text style={styles.residentPanelTitle}>{residentSectionCopy[residentMode].title}</Text>
-                          <Text style={styles.residentPanelSubtitle}>{residentSectionCopy[residentMode].subtitle}</Text>
-                          <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
-                        </View>
-                      ) : null}
+                      <Text style={styles.managementDescription}>{action.description}</Text>
+                      <Text style={styles.managementMeta}>{action.meta}</Text>
                     </View>
                     <PrimaryButton
-                      label={isActive ? 'Open now' : 'Choose'}
+                      label={isActive ? 'Open' : 'Go'}
                       tone={isActive ? 'primary' : 'secondary'}
                       compact
                       onPress={action.onPress}
@@ -969,10 +1084,22 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         </>
       ) : null}
     </ScreenSurface>
+    {feedback ? (
+      <View pointerEvents="none" style={styles.toastViewport}>
+        <View style={[styles.toastCard, feedback.tone === 'danger' ? styles.toastCardDanger : styles.toastCardSuccess]}>
+          <Text style={styles.toastTitle}>{feedback.tone === 'danger' ? 'Something went wrong' : 'Done'}</Text>
+          <Text style={styles.toastText}>{feedback.text}</Text>
+        </View>
+      </View>
+    ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screenWrap: {
+    flex: 1,
+  },
   stack: {
     gap: 12,
   },
@@ -993,6 +1120,133 @@ const styles = StyleSheet.create({
   listText: {
     color: palette.inkSoft,
     lineHeight: 21,
+  },
+  pipelineWrap: {
+    gap: 10,
+  },
+  pipelineStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  pipelineStepActive: {
+    backgroundColor: palette.surfaceTint,
+    borderColor: '#AEEBDD',
+  },
+  pipelineStepNumber: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DFFBF6',
+  },
+  pipelineStepNumberText: {
+    color: palette.accentDeep,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  pipelineStepCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  pipelineStepTitle: {
+    flexShrink: 1,
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  pipelineStepDescription: {
+    color: palette.inkSoft,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  pipelineStepMeta: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+  },
+  managementGrid: {
+    gap: 10,
+  },
+  managementCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  managementCardActive: {
+    backgroundColor: palette.surfaceTint,
+    borderColor: '#AEEBDD',
+  },
+  managementCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  managementTitle: {
+    flexShrink: 1,
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  managementDescription: {
+    color: palette.inkSoft,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  managementMeta: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  queueItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  queueCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 5,
+  },
+  queueTitle: {
+    flexShrink: 1,
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  queueDescription: {
+    color: palette.inkSoft,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  queueMeta: {
+    color: palette.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
   },
   residentActionCard: {
     flexDirection: 'row',
@@ -1118,5 +1372,47 @@ const styles = StyleSheet.create({
     height: 190,
     borderRadius: 18,
     backgroundColor: palette.surface,
+  },
+  toastViewport: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    left: 72,
+    zIndex: 50,
+    alignItems: 'flex-end',
+  },
+  toastCard: {
+    maxWidth: 280,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    shadowColor: '#1F3130',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 22,
+    elevation: 8,
+  },
+  toastCardSuccess: {
+    backgroundColor: palette.surfaceSuccess,
+    borderColor: '#CAEAD8',
+  },
+  toastCardDanger: {
+    backgroundColor: palette.surfaceDanger,
+    borderColor: '#F2D7D3',
+  },
+  toastTitle: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  toastText: {
+    color: palette.inkSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
   },
 });
