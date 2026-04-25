@@ -386,7 +386,7 @@ export function EmptyState({ title, description }) {
   return (
     <View style={styles.emptyState}>
       <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptyDescription}>{description}</Text>
+      {description ? <Text style={styles.emptyDescription}>{description}</Text> : null}
     </View>
   );
 }

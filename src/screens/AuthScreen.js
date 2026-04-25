@@ -21,7 +21,7 @@ function formatResendCountdown(seconds) {
 function maskPhoneNumber(phone) {
   const digits = String(phone || '').replace(/\D+/g, '');
   if (digits.length < 8) {
-    return 'your mobile number';
+    return 'your number';
   }
 
   return `${digits.slice(0, 2)}••••••${digits.slice(-2)}`;
@@ -55,7 +55,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
     setResendCountdown(RESEND_WAIT_SECONDS);
     setMessage({
       tone: 'info',
-      text: 'We sent a 6-digit OTP to your mobile number.',
+      text: 'OTP sent.',
     });
   };
 
@@ -122,15 +122,14 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
   };
 
   const isOwner = role === 'owner';
-  const title = step === 'verify' ? 'Verification' : isOwner ? 'Owner login' : 'Welcome to the app';
+  const title = step === 'verify' ? 'Verify OTP' : isOwner ? 'Owner sign in' : 'Tenant sign in';
   const subtitle =
     step === 'verify'
-      ? `Enter the 6-digit code sent to ${maskPhoneNumber(phone)}.`
+      ? `Code sent to ${maskPhoneNumber(phone)}.`
       : isOwner
-        ? 'Log in to manage your property.'
-        : 'Use the mobile number linked to your stay.';
-  const buttonLabel =
-    step === 'request' ? (isOwner ? 'Log in' : 'Continue') : isBusy ? 'Please wait...' : 'Continue';
+        ? 'Manage your property.'
+        : 'Use your invited number.';
+  const buttonLabel = step === 'request' ? 'Send OTP' : isBusy ? 'Please wait...' : 'Verify';
   const resendCountdownLabel = formatResendCountdown(resendCountdown);
 
   return (
@@ -162,7 +161,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
 
             {message ? <Banner tone={message.tone} message={message.text} /> : null}
             {backendError ? <Banner tone="danger" message={backendError} /> : null}
-            {isBusy ? <Banner tone="info" message="Connecting to your workspace..." /> : null}
+            {isBusy ? <Banner tone="info" message="Connecting..." /> : null}
 
             <View style={styles.formBlock}>
               <CountryCodePicker
@@ -207,7 +206,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
                 style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
               >
                 <Text style={styles.ownerText}>
-                  Wrong number? <Text style={styles.ownerLinkText}>Change it here</Text>
+                  Wrong number? <Text style={styles.ownerLinkText}>Change</Text>
                 </Text>
               </Pressable>
             ) : null}
@@ -215,7 +214,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
             {step === 'verify' ? (
               resendCountdown > 0 ? (
                 <View style={styles.ownerLinkWrap}>
-                  <Text style={styles.ownerText}>Resend OTP in {resendCountdownLabel}</Text>
+                  <Text style={styles.ownerText}>Resend in {resendCountdownLabel}</Text>
                 </View>
               ) : (
                 <Pressable
@@ -228,7 +227,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
                   ]}
                 >
                   <Text style={styles.ownerText}>
-                    Didn't get the code? <Text style={styles.ownerLinkText}>Resend OTP</Text>
+                    <Text style={styles.ownerLinkText}>Resend OTP</Text>
                   </Text>
                 </Pressable>
               )
@@ -239,10 +238,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
               style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
             >
               <Text style={styles.ownerText}>
-                {isOwner ? 'Are you a tenant? ' : 'Are you an owner? '}
-                <Text style={styles.ownerLinkText}>
-                  {isOwner ? 'Continue from here' : 'Log in here'}
-                </Text>
+                <Text style={styles.ownerLinkText}>{isOwner ? 'Switch to tenant' : 'Switch to owner'}</Text>
               </Text>
             </Pressable>
           </View>

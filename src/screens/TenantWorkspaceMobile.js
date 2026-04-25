@@ -40,10 +40,10 @@ function formatInvoiceStateLabel(status) {
   const labels = {
     DUE: 'Bill ready',
     OVERDUE: 'Overdue',
-    PAYMENT_SUBMITTED: 'Waiting for landlord approval',
+    PAYMENT_SUBMITTED: 'Pending approval',
     PAID: 'Paid',
     ISSUED: 'Bill ready',
-    DRAFT: 'In progress',
+    DRAFT: 'Draft',
   };
 
   return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
@@ -51,9 +51,9 @@ function formatInvoiceStateLabel(status) {
 
 function formatMeterStateLabel(status) {
   const labels = {
-    PENDING_REVIEW: 'Waiting for landlord approval',
+    PENDING_REVIEW: 'Pending approval',
     APPROVED: 'Approved',
-    REJECTED: 'Needs to be submitted again',
+    REJECTED: 'Resubmit',
   };
 
   return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
@@ -61,9 +61,9 @@ function formatMeterStateLabel(status) {
 
 function formatSubmissionStateLabel(status) {
   const labels = {
-    PENDING_REVIEW: 'Waiting for landlord approval',
+    PENDING_REVIEW: 'Pending approval',
     APPROVED: 'Approved',
-    REJECTED: 'Needs a fresh proof upload',
+    REJECTED: 'Resubmit',
   };
 
   return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
@@ -206,9 +206,9 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   if (!tenant) {
     return (
       <ScreenSurface
-        hero={<PageHeader eyebrow="Tenant" title="Stay not found" subtitle="We could not find a stay linked to this number yet." />}
+        hero={<PageHeader eyebrow="Tenant" title="Stay not found" subtitle="No stay for this number." />}
       >
-        <SectionCard title="Session" subtitle="Ask your landlord to invite this mobile number first.">
+        <SectionCard title="Session" subtitle="Ask the owner to invite this number.">
           <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
         </SectionCard>
       </ScreenSurface>
@@ -227,43 +227,41 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   const tenantFocus = !isProfileComplete
     ? {
         title: 'Finish your profile',
-        description: 'Your landlord can start the agreement after this step.',
+        description: 'Complete details to continue.',
         tab: 'stay',
         tone: 'accent',
       }
     : !contract
       ? {
-          title: 'Agreement is on the way',
-          description: 'Your landlord is preparing the agreement now.',
+          title: 'Agreement pending',
+          description: 'Waiting for agreement.',
           tab: 'stay',
           tone: 'soft',
         }
       : !activeInvoice
         ? {
             title: 'Submit this month’s reading',
-            description: 'Upload the meter photo once. Your bill will be ready right after that.',
+            description: 'Add the meter photo.',
             tab: 'rent',
             tone: 'accent',
           }
         : ['DUE', 'OVERDUE'].includes(activeInvoice.derivedStatus)
           ? {
               title: `Pay ${formatCurrency(activeInvoice.totalAmount)}`,
-              description:
-                'After you pay, upload the proof and your landlord will do one final approval.',
+              description: 'Pay and upload proof.',
               tab: 'rent',
               tone: activeInvoice.derivedStatus === 'OVERDUE' ? 'accent' : 'forest',
             }
           : activeInvoice.derivedStatus === 'PAYMENT_SUBMITTED'
             ? {
                 title: 'Final approval pending',
-                description:
-                  'Your meter update and payment proof are both with the landlord now.',
+                description: 'Awaiting approval.',
                 tab: 'rent',
                 tone: 'soft',
               }
             : {
-                title: 'You are all set',
-                description: 'Your stay and rent are under control.',
+                title: 'All clear',
+                description: '',
                 tab: 'home',
                 tone: 'forest',
               };
@@ -272,7 +270,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     home: {
       eyebrow: 'Tenant',
       title: tenant.fullName || 'Your stay',
-      subtitle: 'Everything for your stay, in one place.',
+      subtitle: '',
       highlights: [
         room ? `Room ${room.label}` : 'Room pending',
         roomMeter ? `${roomMeter.lastReading} units` : 'Meter pending',
@@ -282,9 +280,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     rent: {
       eyebrow: 'Rent',
       title: activeInvoice ? formatCurrency(activeInvoice.totalAmount) : 'Submit this month’s reading',
-      subtitle: activeInvoice
-        ? 'Your bill is already calculated from the meter reading. Pay once, upload proof once.'
-        : 'Upload the new meter reading and photo so your bill is ready for payment.',
+      subtitle: '',
       highlights: [
         roomMeter ? `Last approved ${roomMeter.lastReading}` : 'No meter',
         activeReading ? formatMeterStateLabel(activeReading.status) : 'Waiting for your reading',
@@ -293,8 +289,8 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     },
     stay: {
       eyebrow: 'My stay',
-      title: 'Your details and agreement',
-      subtitle: 'Keep your room, agreement, and personal details together in one place.',
+      title: 'Stay',
+      subtitle: '',
       highlights: [
         tenant.profileStatus === 'COMPLETE' ? 'Details complete' : 'Details pending',
         contract ? 'Agreement live' : 'Agreement pending',
@@ -304,7 +300,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   }[activeTab];
 
   const renderActivityCard = () => (
-    <SectionCard title="Recent updates" subtitle="The latest rent-related updates for your stay.">
+    <SectionCard title="Updates">
       {activeReading || reminders.length || submissions.length ? (
         <View style={styles.stack}>
           {activeReading ? (
@@ -340,7 +336,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
       ) : (
         <EmptyState
           title="No updates yet"
-          description="Meter, bill, and payment updates will appear here as your monthly cycle moves."
+          description="Nothing yet."
         />
       )}
     </SectionCard>
@@ -351,7 +347,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
       hero={<PageHeader eyebrow={heroCopy.eyebrow} title={heroCopy.title} subtitle={heroCopy.subtitle} highlights={heroCopy.highlights} />}
       bottomBar={<TabStrip tabs={tenantTabs} activeTab={activeTab} onChange={setActiveTab} />}
     >
-      {state.isSyncing ? <Banner tone="info" message="Updating your latest rent details..." /> : null}
+      {state.isSyncing ? <Banner tone="info" message="Updating..." /> : null}
       {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
       {feedback ? <Banner tone={feedback.tone} message={feedback.text} /> : null}
 
@@ -365,7 +361,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
             actionLabel="Open"
             onAction={() => setActiveTab(tenantFocus.tab)}
           />
-          <SectionCard title="Stay overview" subtitle="Only the details you need right now." tone="soft">
+          <SectionCard title="Stay overview" tone="soft">
             <MetricRow
               items={[
                 { label: 'Room', value: room ? room.label : 'Pending' },
@@ -385,10 +381,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
 
       {activeTab === 'rent' ? (
         <>
-          <SectionCard
-            title="This month"
-            subtitle="The meter update, rent calculation, and payment proof all happen in one flow."
-          >
+          <SectionCard title="This month">
             {tenancy ? (
               <>
                 <KeyValueRow
@@ -416,7 +409,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                     />
                     <UploadPreview
                       title="Meter photo"
-                      subtitle={meterForm.photoUpload?.fileName || 'Selected from your device'}
+                      subtitle={meterForm.photoUpload?.fileName || 'Selected'}
                       uri={meterForm.photoUpload?.previewUri}
                     />
                     <PrimaryButton
@@ -430,7 +423,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                               closingReading: Number(meterForm.closingReading),
                               photoUpload: meterForm.photoUpload,
                             }),
-                          'Reading submitted. Your bill is ready to pay now.',
+                          'Reading submitted.',
                         )
                       }
                     />
@@ -467,7 +460,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                     ) : null}
                     <UploadPreview
                       title="Meter photo"
-                      subtitle={activeReading?.photoLabel || 'Uploaded meter proof'}
+                      subtitle={activeReading?.photoLabel || 'Uploaded'}
                       uri={meterPreviewUri}
                     />
 
@@ -476,7 +469,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                         {activeSubmission?.status === 'REJECTED' ? (
                           <Banner
                             tone="danger"
-                            message="The last final review was rejected. Upload a fresh payment proof below."
+                            message="Previous proof was rejected. Upload a new one."
                           />
                         ) : null}
                         <QrCard
@@ -497,7 +490,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                         />
                         <View style={styles.formStack}>
                           <Field
-                            label="UTR / reference number"
+                            label="UTR"
                             value={paymentForm.utr}
                             onChangeText={(value) =>
                               setPaymentForm((current) => ({ ...current, utr: value }))
@@ -506,8 +499,8 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                           <PrimaryButton
                             label={
                               paymentForm.proofUpload
-                                ? 'Replace payment proof'
-                                : 'Upload payment proof'
+                                ? 'Replace proof'
+                                : 'Upload proof'
                             }
                             tone="secondary"
                             onPress={choosePaymentProof}
@@ -515,12 +508,12 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                           <UploadPreview
                             title="Payment proof"
                             subtitle={
-                              paymentForm.proofUpload?.fileName || 'Selected from your device'
+                              paymentForm.proofUpload?.fileName || 'Selected'
                             }
                             uri={paymentForm.proofUpload?.previewUri}
                           />
                           <Field
-                            label="Note for landlord (optional)"
+                            label="Note (optional)"
                             value={paymentForm.note}
                             onChangeText={(value) =>
                               setPaymentForm((current) => ({ ...current, note: value }))
@@ -528,7 +521,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                             multiline
                           />
                           <PrimaryButton
-                            label="Send for final approval"
+                            label="Send proof"
                             onPress={() =>
                               handleAction(
                                 async () => {
@@ -540,7 +533,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                                   });
                                   setPaymentForm({ utr: '', note: '', proofUpload: null });
                                 },
-                                'Payment proof shared. Your landlord now has one final approval to do.',
+                                'Proof submitted.',
                               )
                             }
                           />
@@ -552,12 +545,12 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                       <>
                         <UploadPreview
                           title="Payment proof"
-                          subtitle={activeSubmission?.screenshotLabel || 'Uploaded payment proof'}
+                          subtitle={activeSubmission?.screenshotLabel || 'Uploaded'}
                           uri={paymentProofUri}
                         />
                         <EmptyState
                           title="Final approval pending"
-                          description="Your landlord will confirm the meter update and the payment together in one review."
+                          description="Waiting for approval."
                         />
                       </>
                     ) : null}
@@ -566,12 +559,12 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                       <>
                         <UploadPreview
                           title="Payment proof"
-                          subtitle={activeSubmission?.screenshotLabel || 'Approved payment proof'}
+                          subtitle={activeSubmission?.screenshotLabel || 'Approved'}
                           uri={paymentProofUri}
                         />
                         <EmptyState
                           title="Payment confirmed"
-                          description="This month is closed and approved."
+                          description="Paid and approved."
                         />
                       </>
                     ) : null}
@@ -580,8 +573,8 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
               </>
             ) : (
               <EmptyState
-                title="Your stay is not active yet"
-                description="Complete onboarding first. Monthly meter updates start after the stay is active."
+                title="Stay not active"
+                description="Finish onboarding first."
               />
             )}
           </SectionCard>
@@ -591,13 +584,13 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
 
       {activeTab === 'stay' ? (
         <>
-          <SectionCard title="Your stay" subtitle="Room, agreement, and account actions live here." tone="soft">
+          <SectionCard title="Stay" tone="soft">
             <KeyValueRow label="Room" value={room ? `Room ${room.label}` : 'Pending'} />
             <KeyValueRow label="Details" value={tenant.profileStatus === 'COMPLETE' ? 'Complete' : 'Pending'} />
             <KeyValueRow label="Agreement" value={contract ? 'Active' : 'Pending'} />
             <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
           </SectionCard>
-          <SectionCard title="My stay" subtitle="Update your details and review your agreement here.">
+          <SectionCard title="Details">
             <ChoiceChips options={profileModes} value={profileMode} onChange={setProfileMode} />
             {profileMode === 'details' ? (
               <>
@@ -605,8 +598,8 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                 <Field label="Email" value={profileForm.email} onChangeText={(value) => setProfileForm((current) => ({ ...current, email: value }))} keyboardType="email-address" />
                 <Field label="Emergency contact number" value={profileForm.emergencyContact} onChangeText={(value) => setProfileForm((current) => ({ ...current, emergencyContact: value }))} keyboardType="phone-pad" />
                 <Field label="ID number" value={profileForm.idDocument} onChangeText={(value) => setProfileForm((current) => ({ ...current, idDocument: value }))} />
-                <Field label="Anything your landlord should know" value={profileForm.notes} onChangeText={(value) => setProfileForm((current) => ({ ...current, notes: value }))} multiline />
-                <PrimaryButton label="Save details" onPress={() => handleAction(() => actions.completeTenantProfile({ tenantId: tenant.id, ...profileForm }), 'Profile saved.')} />
+                <Field label="Notes" value={profileForm.notes} onChangeText={(value) => setProfileForm((current) => ({ ...current, notes: value }))} multiline />
+                <PrimaryButton label="Save details" onPress={() => handleAction(() => actions.completeTenantProfile({ tenantId: tenant.id, ...profileForm }), 'Details saved.')} />
               </>
             ) : contract ? (
               <>
@@ -621,14 +614,14 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                       <UploadPreview
                         key={`${contract.id}-page-${index}`}
                         title={`Agreement page ${index + 1}`}
-                        subtitle="Uploaded agreement image"
+                        subtitle=""
                         uri={resolveUploadUrl(imageLabel)}
                       />
                     ))}
                   </View>
                 ) : null}
               </>
-            ) : <EmptyState title="Agreement not active yet" description="Once your landlord confirms the agreement, the details will appear here." />}
+            ) : <EmptyState title="Agreement pending" description="Waiting for agreement." />}
           </SectionCard>
         </>
       ) : null}
