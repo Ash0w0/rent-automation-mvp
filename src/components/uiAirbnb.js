@@ -358,7 +358,7 @@ export function PrimaryButton({ label, onPress, tone = 'primary', disabled = fal
     secondary: { backgroundColor: palette.surface, color: palette.ink, borderColor: '#CBE8E1' },
     dark: { backgroundColor: palette.black, color: palette.white, borderColor: palette.black },
     ghost: { backgroundColor: 'transparent', color: palette.accentDeep, borderColor: 'transparent' },
-    danger: { backgroundColor: palette.surfaceDanger, color: palette.danger, borderColor: '#F2D7D3' },
+    danger: { backgroundColor: palette.danger, color: palette.white, borderColor: palette.danger },
   };
   const colors = tones[tone] || tones.primary;
 
@@ -664,6 +664,8 @@ const styles = StyleSheet.create({
   },
   cardBody: {
     gap: 14,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   focusCard: {
     borderRadius: 30,
@@ -828,6 +830,8 @@ const styles = StyleSheet.create({
   },
   fieldWrap: {
     gap: 8,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   fieldLabel: {
     color: palette.ink,
@@ -835,6 +839,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   input: {
+    width: '100%',
     borderRadius: 18,
     borderWidth: 1,
     borderColor: palette.border,
@@ -859,8 +864,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   choiceChip: {
+    flexGrow: 1,
     minWidth: 140,
     paddingHorizontal: 14,
     paddingVertical: 12,

@@ -209,7 +209,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
         hero={<PageHeader eyebrow="Tenant" title="Stay not found" subtitle="We could not find a stay linked to this number yet." />}
       >
         <SectionCard title="Session" subtitle="Ask your landlord to invite this mobile number first.">
-          <PrimaryButton label="Log out" onPress={onLogout} />
+          <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
         </SectionCard>
       </ScreenSurface>
     );
@@ -595,7 +595,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
             <KeyValueRow label="Room" value={room ? `Room ${room.label}` : 'Pending'} />
             <KeyValueRow label="Details" value={tenant.profileStatus === 'COMPLETE' ? 'Complete' : 'Pending'} />
             <KeyValueRow label="Agreement" value={contract ? 'Active' : 'Pending'} />
-            <PrimaryButton label="Log out" tone="secondary" onPress={onLogout} />
+            <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
           </SectionCard>
           <SectionCard title="My stay" subtitle="Update your details and review your agreement here.">
             <ChoiceChips options={profileModes} value={profileMode} onChange={setProfileMode} />

@@ -49,65 +49,44 @@ const profileModes = [
   { label: 'Payouts', value: 'collection' },
 ];
 
-function buildFocus({ pendingSubmissions, invitedTenancies, overdueInvoices, vacantRooms, roomCount }) {
-  if (!roomCount) {
-    return {
-      title: 'Set up rooms first',
-      description: 'Create the rooms before you start assigning tenants.',
-      tab: 'rooms',
-      mode: 'inventory',
-      tone: 'accent',
-    };
-  }
+const roomStatusThemes = {
+  paid: {
+    label: 'Paid',
+    backgroundColor: '#EAF8EE',
+    borderColor: '#BCE8C9',
+    color: '#107A45',
+  },
+  due: {
+    label: 'Due',
+    backgroundColor: '#FFF4CF',
+    borderColor: '#F0D375',
+    color: '#9B6D00',
+  },
+  review: {
+    label: 'Review',
+    backgroundColor: '#FFF8DE',
+    borderColor: '#F1D98B',
+    color: '#8D6500',
+  },
+  overdue: {
+    label: 'Overdue',
+    backgroundColor: '#FFE8E4',
+    borderColor: '#F2B8AE',
+    color: '#B42318',
+  },
+  vacant: {
+    label: 'Vacant',
+    backgroundColor: '#F4F7F8',
+    borderColor: '#DDE7E9',
+    color: '#667085',
+  },
+};
 
-  if (pendingSubmissions.length) {
-    return {
-      title: `Review ${pendingSubmissions.length} final approval${pendingSubmissions.length > 1 ? 's' : ''}`,
-      description: 'Each review includes the tenant meter photo, the calculated bill, and the payment proof together.',
-      tab: 'rent',
-      mode: 'payment-review',
-      tone: 'accent',
-    };
-  }
-
-  if (invitedTenancies.length) {
-    return {
-      title: `Finish ${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''}`,
-      description: 'Profiles are ready. Upload the agreement and start the stay.',
-      tab: 'rooms',
-      mode: 'activate',
-      tone: 'accent',
-    };
-  }
-
-  if (overdueInvoices.length) {
-    return {
-      title: `${overdueInvoices.length} overdue bill${overdueInvoices.length > 1 ? 's' : ''}`,
-      description: 'Follow up now before the delay grows.',
-      tab: 'rent',
-      mode: 'ledger',
-      tone: 'accent',
-    };
-  }
-
-  if (vacantRooms.length) {
-    return {
-      title: `${vacantRooms.length} room${vacantRooms.length > 1 ? 's' : ''} open`,
-      description: 'Invite the next tenant when you are ready to fill it.',
-      tab: 'rooms',
-      mode: 'invite',
-      tone: 'soft',
-    };
-  }
-
-  return {
-    title: 'Everything looks calm today',
-    description: 'Use the tabs below when you want to update rooms, rent, or property details.',
-    tab: 'home',
-    mode: null,
-    tone: 'soft',
-  };
-}
+const roomStatusLegend = [
+  { key: 'paid', label: 'Paid' },
+  { key: 'review', label: 'To review' },
+  { key: 'overdue', label: 'Overdue' },
+];
 
 function UploadPreview({ title, subtitle, uri }) {
   if (!uri) {
@@ -119,6 +98,58 @@ function UploadPreview({ title, subtitle, uri }) {
       <Text style={styles.previewTitle}>{title}</Text>
       {subtitle ? <Text style={styles.previewSubtitle}>{subtitle}</Text> : null}
       <Image source={{ uri }} style={styles.previewImage} resizeMode="cover" />
+    </View>
+  );
+}
+
+function RoomStatusBoard({ title, items }) {
+  return (
+    <View style={styles.roomStatusBoard}>
+      <View style={styles.roomStatusHeader}>
+        <Text style={styles.roomStatusTitle}>{title}</Text>
+        <Text style={styles.roomStatusCount}>{items.length} rooms</Text>
+      </View>
+      <View style={styles.roomStatusLegend}>
+        {roomStatusLegend.map((legendItem) => {
+          const theme = roomStatusThemes[legendItem.key];
+
+          return (
+            <View key={legendItem.key} style={styles.roomStatusLegendItem}>
+              <View style={[styles.roomStatusDot, { backgroundColor: theme.color }]} />
+              <Text style={styles.roomStatusLegendText}>{legendItem.label}</Text>
+            </View>
+          );
+        })}
+      </View>
+      {items.length ? (
+        <View style={styles.roomTileGrid}>
+          {items.map((item) => {
+            const theme = roomStatusThemes[item.statusKind] || roomStatusThemes.vacant;
+
+            return (
+              <View
+                key={item.roomId}
+                style={[
+                  styles.roomTile,
+                  {
+                    backgroundColor: theme.backgroundColor,
+                    borderColor: theme.borderColor,
+                  },
+                ]}
+              >
+                <View style={styles.roomTileHeader}>
+                  <Text style={styles.roomTileNumber}>{item.roomLabel}</Text>
+                  <Text style={[styles.roomTileStatus, { color: theme.color }]}>{item.statusLabel}</Text>
+                </View>
+                <Text style={styles.roomTileTenant} numberOfLines={1}>{item.tenantName}</Text>
+                {item.amountLabel ? <Text style={styles.roomTileAmount}>{item.amountLabel}</Text> : null}
+              </View>
+            );
+          })}
+        </View>
+      ) : (
+        <Text style={styles.roomStatusEmpty}>No rooms created yet.</Text>
+      )}
     </View>
   );
 }
@@ -265,6 +296,64 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     })
     .sort((left, right) => compareIsoDates(left.dueDate, right.dueDate));
 
+  const latestInvoiceByRoomId = new Map();
+  invoices.forEach((invoice) => {
+    if (!latestInvoiceByRoomId.has(invoice.roomId)) {
+      latestInvoiceByRoomId.set(invoice.roomId, invoice);
+    }
+  });
+
+  const latestSubmissionByInvoiceId = new Map();
+  [...state.paymentSubmissions]
+    .sort((left, right) => String(right.submittedAt || '').localeCompare(String(left.submittedAt || '')))
+    .forEach((submission) => {
+      if (!latestSubmissionByInvoiceId.has(submission.invoiceId)) {
+        latestSubmissionByInvoiceId.set(submission.invoiceId, submission);
+      }
+    });
+
+  const roomStatusItems = [...state.rooms]
+    .sort((left, right) => String(left.label).localeCompare(String(right.label), undefined, { numeric: true }))
+    .map((room) => {
+      const tenancy = state.tenancies.find(
+        (record) => record.roomId === room.id && ['ACTIVE', 'MOVE_OUT_SCHEDULED', 'INVITED'].includes(record.status),
+      );
+      const latestInvoice = latestInvoiceByRoomId.get(room.id) || null;
+      const latestSubmission = latestInvoice ? latestSubmissionByInvoiceId.get(latestInvoice.id) : null;
+      const tenant = tenancy ? getTenant(tenancy.tenantId) : latestInvoice ? getTenant(latestInvoice.tenantId) : null;
+      let statusKind = room.status === 'VACANT' ? 'vacant' : 'paid';
+      let statusLabel = room.status === 'VACANT' ? 'Vacant' : 'Current';
+
+      if (latestSubmission?.status === 'REJECTED') {
+        statusKind = 'overdue';
+        statusLabel = 'Rejected';
+      } else if (latestInvoice?.derivedStatus === 'OVERDUE') {
+        statusKind = 'overdue';
+        statusLabel = 'Overdue';
+      } else if (latestSubmission?.status === 'PENDING_REVIEW' || latestInvoice?.derivedStatus === 'PAYMENT_SUBMITTED') {
+        statusKind = 'review';
+        statusLabel = 'Review';
+      } else if (latestInvoice && ['DUE', 'ISSUED'].includes(latestInvoice.derivedStatus)) {
+        statusKind = 'due';
+        statusLabel = 'Due';
+      } else if (latestInvoice?.derivedStatus === 'PAID') {
+        statusKind = 'paid';
+        statusLabel = 'Paid';
+      } else if (tenancy?.status === 'INVITED') {
+        statusKind = 'due';
+        statusLabel = 'Move-in';
+      }
+
+      return {
+        roomId: room.id,
+        roomLabel: room.label,
+        tenantName: tenant?.fullName || (room.status === 'VACANT' ? 'Open room' : 'Resident pending'),
+        statusKind,
+        statusLabel,
+        amountLabel: latestInvoice ? formatCurrency(latestInvoice.totalAmount) : '',
+      };
+    });
+
   useEffect(() => {
     setPropertyForm({
       name: state.property.name,
@@ -324,19 +413,11 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     unpaidNow: collectionWatch.length,
   };
 
-  const focus = buildFocus({
-    pendingSubmissions,
-    invitedTenancies,
-    overdueInvoices,
-    vacantRooms,
-    roomCount: state.rooms.length,
-  });
-
   const heroCopy = {
     home: {
       eyebrow: 'Landlord',
       title: state.property.name,
-      subtitle: 'Stay ahead of occupancy, collections, and property setup in one simple flow.',
+      subtitle: '',
       highlights: [
         `${summary.availableRooms} open rooms`,
         `${summary.finalApprovals} final approvals`,
@@ -465,35 +546,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       onPress: () => setResidentMode('moveout'),
     },
   ];
-
-  const residentFocus =
-    !state.rooms.length
-      ? {
-          title: 'Create your first room',
-          description: 'Rooms come first. Add the room and meter before onboarding tenants.',
-          actionLabel: 'Add room',
-          onPress: () => setResidentMode('inventory'),
-        }
-      : vacantRooms.length
-        ? {
-          title: 'Assign the tenant to a room first',
-          description: 'Keep room assignment separate from move-in so the flow stays easy to follow.',
-          actionLabel: 'Invite tenant',
-          onPress: () => setResidentMode('invite'),
-        }
-      : invitedTenancies.length
-      ? {
-          title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's are' : ' is'} waiting`,
-          description: 'The next useful action is to upload the agreement and start the stay.',
-          actionLabel: 'Complete move-in',
-          onPress: () => setResidentMode('activate'),
-        }
-        : {
-            title: 'Rooms are under control',
-            description: 'Use the actions below when you want to add rooms, invite tenants, complete move-ins, or manage active stays.',
-            actionLabel: 'Room list',
-            onPress: () => setResidentMode('rooms'),
-          };
 
   const rentFocus =
     pendingSubmissions.length
@@ -684,11 +736,13 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
           <Field label="Tenant name" value={inviteForm.fullName} onChangeText={(value) => setInviteForm((current) => ({ ...current, fullName: value }))} />
           <Field label="Tenant mobile number" value={inviteForm.phone} onChangeText={(value) => setInviteForm((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" />
           <ChoiceChips value={inviteForm.roomId} onChange={(value) => setInviteForm((current) => ({ ...current, roomId: value }))} options={vacantRooms.map((room) => ({ value: room.id, label: `Room ${room.label}`, meta: `Floor ${room.floor}` }))} />
-          <PrimaryButton label="Assign tenant to room" onPress={() => handleAction(async () => {
-            await actions.inviteTenant(inviteForm);
-            setInviteForm({ fullName: '', phone: '', roomId: '' });
-            setResidentMode('activate');
-          }, 'Tenant added to the room. Complete move-in next.')} />
+          <View style={styles.fullWidthAction}>
+            <PrimaryButton label="Assign room" onPress={() => handleAction(async () => {
+              await actions.inviteTenant(inviteForm);
+              setInviteForm({ fullName: '', phone: '', roomId: '' });
+              setResidentMode('activate');
+            }, 'Tenant added to the room. Complete move-in next.')} />
+          </View>
         </View>
       ) : (
         <EmptyState title="No open rooms" description="Add a room first or wait until a room becomes available." />
@@ -769,111 +823,119 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
   const renderRentContent = () => {
     if (rentMode === 'ledger') {
-      return invoices.length ? (
+      return (
         <View style={styles.stack}>
-          {invoices.map((invoice) => {
-            const tenant = getTenant(invoice.tenantId);
-            const room = getRoom(invoice.roomId);
-
-            return (
-              <View key={invoice.id} style={styles.listCard}>
-                <InlineGroup>
-                  <Text style={styles.listTitle}>{tenant?.fullName || 'Tenant'}</Text>
-                  <StatusBadge label={invoice.derivedStatus} />
-                </InlineGroup>
-                <Text style={styles.listText}>Room {room?.label || '-'} | {formatMonth(invoice.month)} | due {formatDate(invoice.dueDate)}</Text>
-                <KeyValueRow label="Total" value={formatCurrency(invoice.totalAmount)} />
-                <KeyValueRow label="Electricity" value={formatCurrency(invoice.electricityCharge)} />
-              </View>
-            );
-          })}
+          <RoomStatusBoard title="Rooms overview" items={roomStatusItems} />
+          {collectionWatch.length ? (
+            <View style={styles.stack}>
+              {collectionWatch.map((invoice) => (
+                <View key={invoice.id} style={styles.listCard}>
+                  <InlineGroup>
+                    <Text style={styles.listTitle}>Room {invoice.roomLabel}</Text>
+                    <StatusBadge label={invoice.derivedStatus} />
+                  </InlineGroup>
+                  <Text style={styles.listText}>{invoice.tenantName} | {formatMonth(invoice.month)} | {invoice.dueWindow}</Text>
+                  <KeyValueRow label="Total" value={formatCurrency(invoice.totalAmount)} />
+                  <KeyValueRow label="Electricity" value={formatCurrency(invoice.electricityCharge)} />
+                  <KeyValueRow label="Reminder" value={invoice.reminderState} />
+                </View>
+              ))}
+            </View>
+          ) : (
+            <EmptyState title="No dues waiting" description="The room map above is current. New due items will appear here when a bill needs attention." />
+          )}
         </View>
-      ) : <EmptyState title="No bills yet" description="Bills will appear here after a tenancy becomes active." />;
+      );
     }
 
     if (rentMode === 'payment-review') {
-      return pendingSubmissions.length ? (
+      return (
         <View style={styles.stack}>
-          {pendingSubmissions.map((submission) => {
-            const invoice = invoices.find((record) => record.id === submission.invoiceId);
-            const tenant = getTenant(submission.tenantId);
-            const room = invoice ? getRoom(invoice.roomId) : null;
-            const meterReading =
-              state.meterReadings.find((reading) => reading.invoiceId === submission.invoiceId) || null;
+          <RoomStatusBoard title="Approval map" items={roomStatusItems} />
+          {pendingSubmissions.length ? (
+            <View style={styles.stack}>
+              {pendingSubmissions.map((submission) => {
+                const invoice = invoices.find((record) => record.id === submission.invoiceId);
+                const tenant = getTenant(submission.tenantId);
+                const room = invoice ? getRoom(invoice.roomId) : null;
+                const meterReading =
+                  state.meterReadings.find((reading) => reading.invoiceId === submission.invoiceId) || null;
 
-            return (
-              <View key={submission.id} style={styles.listCard}>
-                <InlineGroup>
-                  <Text style={styles.listTitle}>{tenant?.fullName || 'Tenant'}</Text>
-                  <StatusBadge label={submission.status} />
-                </InlineGroup>
-                <Text style={styles.listText}>
-                  Room {room?.label || '-'} | {invoice ? formatMonth(invoice.month) : '-'} | due{' '}
-                  {invoice ? formatDate(invoice.dueDate) : '-'}
-                </Text>
-                <MetricRow
-                  items={[
-                    { label: 'Total', value: invoice ? formatCurrency(invoice.totalAmount) : '-' },
-                    { label: 'Rent', value: invoice ? formatCurrency(invoice.baseRent) : '-' },
-                    {
-                      label: 'Electricity',
-                      value: invoice ? formatCurrency(invoice.electricityCharge) : '-',
-                    },
-                  ]}
-                />
-                {meterReading ? (
-                  <>
-                    <KeyValueRow
-                      label="Meter reading"
-                      value={`${meterReading.openingReading} to ${meterReading.closingReading}`}
+                return (
+                  <View key={submission.id} style={styles.listCard}>
+                    <InlineGroup>
+                      <Text style={styles.listTitle}>Room {room?.label || '-'}</Text>
+                      <StatusBadge label={submission.status} />
+                    </InlineGroup>
+                    <Text style={styles.listText}>
+                      {tenant?.fullName || 'Tenant'} | {invoice ? formatMonth(invoice.month) : '-'} | due{' '}
+                      {invoice ? formatDate(invoice.dueDate) : '-'}
+                    </Text>
+                    <MetricRow
+                      items={[
+                        { label: 'Total', value: invoice ? formatCurrency(invoice.totalAmount) : '-' },
+                        { label: 'Rent', value: invoice ? formatCurrency(invoice.baseRent) : '-' },
+                        {
+                          label: 'Electricity',
+                          value: invoice ? formatCurrency(invoice.electricityCharge) : '-',
+                        },
+                      ]}
                     />
-                    <KeyValueRow
-                      label="Units used"
-                      value={String(meterReading.closingReading - meterReading.openingReading)}
+                    {meterReading ? (
+                      <>
+                        <KeyValueRow
+                          label="Meter reading"
+                          value={`${meterReading.openingReading} to ${meterReading.closingReading}`}
+                        />
+                        <KeyValueRow
+                          label="Units used"
+                          value={String(meterReading.closingReading - meterReading.openingReading)}
+                        />
+                      </>
+                    ) : null}
+                    <KeyValueRow label="UTR" value={submission.utr} />
+                    <UploadPreview
+                      title="Meter photo"
+                      subtitle={meterReading?.photoLabel || 'Uploaded meter proof'}
+                      uri={resolveUploadUrl(meterReading?.photoLabel)}
                     />
-                  </>
-                ) : null}
-                <KeyValueRow label="UTR" value={submission.utr} />
-                <UploadPreview
-                  title="Meter photo"
-                  subtitle={meterReading?.photoLabel || 'Uploaded meter proof'}
-                  uri={resolveUploadUrl(meterReading?.photoLabel)}
-                />
-                <UploadPreview
-                  title="Payment proof"
-                  subtitle={submission.screenshotLabel}
-                  uri={resolveUploadUrl(submission.screenshotLabel)}
-                />
-                <InlineGroup>
-                  <PrimaryButton
-                    label="Approve"
-                    onPress={() =>
-                      handleAction(
-                        () => actions.reviewPayment({ submissionId: submission.id, decision: 'APPROVE' }),
-                        'The bill, payment, and meter reading were approved together.',
-                      )
-                    }
-                  />
-                  <PrimaryButton
-                    label="Reject"
-                    tone="danger"
-                    onPress={() =>
-                      handleAction(
-                        () => actions.reviewPayment({ submissionId: submission.id, decision: 'REJECT' }),
-                        'The final approval was rejected and the bill moved back to due.',
-                      )
-                    }
-                  />
-                </InlineGroup>
-              </View>
-            );
-          })}
+                    <UploadPreview
+                      title="Payment proof"
+                      subtitle={submission.screenshotLabel}
+                      uri={resolveUploadUrl(submission.screenshotLabel)}
+                    />
+                    <InlineGroup>
+                      <PrimaryButton
+                        label="Approve"
+                        onPress={() =>
+                          handleAction(
+                            () => actions.reviewPayment({ submissionId: submission.id, decision: 'APPROVE' }),
+                            'The bill, payment, and meter reading were approved together.',
+                          )
+                        }
+                      />
+                      <PrimaryButton
+                        label="Reject"
+                        tone="danger"
+                        onPress={() =>
+                          handleAction(
+                            () => actions.reviewPayment({ submissionId: submission.id, decision: 'REJECT' }),
+                            'The final approval was rejected and the bill moved back to due.',
+                          )
+                        }
+                      />
+                    </InlineGroup>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <EmptyState
+              title="No final approvals waiting"
+              description="Yellow rooms appear here when tenants submit the meter photo and payment proof together."
+            />
+          )}
         </View>
-      ) : (
-        <EmptyState
-          title="No final approvals waiting"
-          description="Tenants will appear here only after they submit the meter photo and payment proof together."
-        />
       );
     }
 
@@ -936,7 +998,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
       {activeTab === 'home' ? (
         <>
-          <FocusCard eyebrow="Do now" title={focus.title} description={focus.description} tone={focus.tone} actionLabel={focus.mode ? 'Open next task' : null} onAction={focus.mode ? () => openTask({ tab: focus.tab, mode: focus.mode }) : undefined} />
           <SectionCard title="Snapshot" subtitle="The essential picture of the property right now." tone="soft">
             <MetricRow items={[{ label: 'Living now', value: summary.livingNow }, { label: 'Empty rooms', value: summary.availableRooms }, { label: 'Leaving soon', value: summary.leavingSoon }, { label: 'Unpaid', value: summary.unpaidNow }]} />
           </SectionCard>
@@ -961,14 +1022,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
       {activeTab === 'rooms' ? (
         <>
-          <FocusCard
-            eyebrow="Rooms"
-            title={residentFocus.title}
-            description={residentFocus.description}
-            tone="soft"
-            actionLabel={residentFocus.actionLabel}
-            onAction={residentFocus.onPress}
-          />
           <SectionCard title="Move-in pipeline" subtitle="Do these in order. The active workspace opens below.">
             <View style={styles.pipelineWrap}>
               {moveInPipelineActions.map((action) => (
@@ -1036,7 +1089,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
                 return (
                   <View key={action.key} style={[styles.residentActionCard, isActive && styles.residentActionCardActive]}>
-                    <View style={styles.residentActionCopy}>
+                    <View style={[styles.residentActionCopy, isActive && styles.residentActionCopyActive]}>
                       <InlineGroup>
                         <Text style={styles.residentActionTitle}>{action.title}</Text>
                         {isActive ? <StatusBadge label="OPEN" /> : null}
@@ -1075,7 +1128,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
             <KeyValueRow label="Property" value={state.property.name} />
             <KeyValueRow label="Manager" value={state.property.managerName} />
             <KeyValueRow label="Phone" value={state.property.managerPhone} />
-            <PrimaryButton label="Log out" tone="secondary" onPress={onLogout} />
+            <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
           </SectionCard>
           <SectionCard title="Property settings" subtitle="Change details only when something changes.">
             <ChoiceChips options={profileModes} value={profileMode} onChange={setProfileMode} />
@@ -1102,8 +1155,12 @@ const styles = StyleSheet.create({
   },
   stack: {
     gap: 12,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   listCard: {
+    alignSelf: 'stretch',
+    width: '100%',
     padding: 16,
     borderRadius: 24,
     backgroundColor: palette.surface,
@@ -1121,10 +1178,110 @@ const styles = StyleSheet.create({
     color: palette.inkSoft,
     lineHeight: 21,
   },
-  pipelineWrap: {
+  roomStatusBoard: {
+    gap: 12,
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  roomStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
   },
+  roomStatusTitle: {
+    color: palette.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  roomStatusCount: {
+    color: palette.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  roomStatusLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  roomStatusLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  roomStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  roomStatusLegendText: {
+    color: palette.inkSoft,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
+  roomTileGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  roomTile: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    minWidth: 124,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 5,
+  },
+  roomTileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  roomTileNumber: {
+    color: palette.ink,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  roomTileStatus: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  roomTileTenant: {
+    color: palette.inkSoft,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
+  roomTileAmount: {
+    color: palette.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  roomStatusEmpty: {
+    color: palette.muted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  pipelineWrap: {
+    gap: 10,
+    alignSelf: 'stretch',
+    width: '100%',
+  },
   pipelineStep: {
+    alignSelf: 'stretch',
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -1176,8 +1333,12 @@ const styles = StyleSheet.create({
   },
   managementGrid: {
     gap: 10,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   managementCard: {
+    alignSelf: 'stretch',
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1215,6 +1376,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   queueItem: {
+    alignSelf: 'stretch',
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1249,6 +1412,8 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   residentActionCard: {
+    alignSelf: 'stretch',
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
@@ -1260,12 +1425,18 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
   },
   residentActionCardActive: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
     backgroundColor: palette.surfaceTint,
     borderColor: '#BFEADE',
   },
   residentActionCopy: {
     flex: 1,
     gap: 6,
+  },
+  residentActionCopyActive: {
+    alignSelf: 'stretch',
+    width: '100%',
   },
   residentActionTitle: {
     flexShrink: 1,
@@ -1292,8 +1463,10 @@ const styles = StyleSheet.create({
   },
   contractUploadBlock: {
     gap: 10,
+    alignSelf: 'stretch',
+    width: '100%',
     padding: 14,
-    borderRadius: 20,
+    borderRadius: 18,
     backgroundColor: palette.surfaceMuted,
     borderWidth: 1,
     borderColor: palette.border,
@@ -1310,8 +1483,12 @@ const styles = StyleSheet.create({
   },
   contractUploadCard: {
     gap: 8,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   residentActionPanel: {
+    alignSelf: 'stretch',
+    width: '100%',
     marginTop: 10,
     paddingTop: 14,
     borderTopWidth: 1,
@@ -1331,26 +1508,46 @@ const styles = StyleSheet.create({
   },
   residentPanelBody: {
     gap: 12,
+    alignSelf: 'stretch',
+    width: '100%',
   },
   inlineSection: {
-    gap: 10,
-    padding: 14,
+    alignSelf: 'stretch',
+    width: '100%',
+    gap: 14,
+    padding: 0,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+  },
+  fullWidthAction: {
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  inlineSectionTitle: {
+    color: palette.ink,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+  },
+  inlineSectionSubtitle: {
+    color: palette.inkSoft,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  formPanel: {
+    alignSelf: 'stretch',
+    width: '100%',
+    gap: 14,
+    padding: 16,
     borderRadius: 18,
     backgroundColor: palette.surface,
     borderWidth: 1,
     borderColor: palette.border,
   },
-  inlineSectionTitle: {
-    color: palette.ink,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  inlineSectionSubtitle: {
-    color: palette.inkSoft,
-    fontSize: 13,
-    lineHeight: 20,
-  },
   previewCard: {
+    alignSelf: 'stretch',
+    width: '100%',
     gap: 10,
     padding: 14,
     borderRadius: 22,
