@@ -87,6 +87,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   const [activeTab, setActiveTab] = useState('home');
   const [profileMode, setProfileMode] = useState('details');
   const [feedback, setFeedback] = useState(null);
+  const settlementAccount = state.settlementAccount || {};
   const currentMonth = state.referenceDate.slice(0, 7);
   const tenant = state.tenants.find((record) => record.id === state.session.currentTenantId);
   const tenancy = state.tenancies.find(
@@ -474,7 +475,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                         ) : null}
                         <QrCard
                           value={activeInvoice.paymentLink}
-                          subtitle={`${state.settlementAccount.payeeName} | ${state.settlementAccount.upiId}`}
+                          subtitle={`${settlementAccount.payeeName || 'Payee'} | ${settlementAccount.upiId || 'UPI'}`}
                         />
                         <PrimaryButton
                           label="Open UPI app"

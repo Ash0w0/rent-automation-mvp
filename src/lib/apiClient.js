@@ -10,6 +10,14 @@ function trimTrailingSlash(value) {
   return value.replace(/\/+$/, '');
 }
 
+function isDevelopmentRuntime() {
+  if (typeof __DEV__ === 'boolean') {
+    return __DEV__;
+  }
+
+  return process.env.NODE_ENV !== 'production';
+}
+
 function getApiBaseUrl() {
   const configuredUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
   if (configuredUrl) {
@@ -26,11 +34,17 @@ function getApiBaseUrl() {
     return trimTrailingSlash(window.location.origin);
   }
 
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:4000';
+  if (isDevelopmentRuntime()) {
+    if (Platform.OS === 'android') {
+      return 'http://10.0.2.2:4000';
+    }
+
+    return 'http://127.0.0.1:4000';
   }
 
-  return 'http://127.0.0.1:4000';
+  throw new Error(
+    'EXPO_PUBLIC_API_BASE_URL is required for native device builds. Set it to your live backend URL before building the APK.',
+  );
 }
 
 function resolveUploadUrl(fileName) {

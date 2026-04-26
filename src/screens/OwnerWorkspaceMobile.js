@@ -220,17 +220,27 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [rentMode, setRentMode] = useState('ledger');
   const [profileMode, setProfileMode] = useState('property');
   const [feedback, setFeedback] = useState(null);
+  const property = state.property || {};
+  const settlementAccount = state.settlementAccount || {};
+  const propertyName = property.name || 'Property';
+  const propertyAddress = property.address || '';
+  const managerName = property.managerName || '';
+  const managerPhone = property.managerPhone || '';
+  const defaultTariff = property.defaultTariff ?? 0;
+  const payeeName = settlementAccount.payeeName || '';
+  const upiId = settlementAccount.upiId || 'UPI not set';
+  const payoutInstructions = settlementAccount.instructions || '';
   const [propertyForm, setPropertyForm] = useState({
-    name: state.property.name,
-    address: state.property.address,
-    managerName: state.property.managerName,
-    managerPhone: state.property.managerPhone,
-    defaultTariff: String(state.property.defaultTariff),
+    name: propertyName,
+    address: propertyAddress,
+    managerName,
+    managerPhone,
+    defaultTariff: String(defaultTariff),
   });
   const [settlementForm, setSettlementForm] = useState({
-    payeeName: state.settlementAccount.payeeName,
-    upiId: state.settlementAccount.upiId,
-    instructions: state.settlementAccount.instructions,
+    payeeName,
+    upiId: settlementAccount.upiId || '',
+    instructions: payoutInstructions,
   });
   const [roomForm, setRoomForm] = useState({ label: '', floor: '', serialNumber: '', openingReading: '0' });
   const [inviteForm, setInviteForm] = useState({ fullName: '', phone: '', roomId: '' });
@@ -356,21 +366,21 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
   useEffect(() => {
     setPropertyForm({
-      name: state.property.name,
-      address: state.property.address,
-      managerName: state.property.managerName,
-      managerPhone: state.property.managerPhone,
-      defaultTariff: String(state.property.defaultTariff),
+      name: propertyName,
+      address: propertyAddress,
+      managerName,
+      managerPhone,
+      defaultTariff: String(defaultTariff),
     });
-  }, [state.property]);
+  }, [defaultTariff, managerName, managerPhone, propertyAddress, propertyName]);
 
   useEffect(() => {
     setSettlementForm({
-      payeeName: state.settlementAccount.payeeName,
-      upiId: state.settlementAccount.upiId,
-      instructions: state.settlementAccount.instructions,
+      payeeName,
+      upiId: settlementAccount.upiId || '',
+      instructions: payoutInstructions,
     });
-  }, [state.settlementAccount]);
+  }, [payeeName, payoutInstructions, settlementAccount.upiId]);
 
   useEffect(() => {
     if (!inviteForm.roomId && vacantRooms[0]) {
@@ -416,7 +426,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const heroCopy = {
     home: {
       eyebrow: 'Landlord',
-      title: state.property.name,
+      title: propertyName,
       subtitle: '',
       highlights: [
         `${summary.availableRooms} open rooms`,
@@ -444,7 +454,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       eyebrow: 'Profile',
       title: 'Profile',
       subtitle: '',
-      highlights: [state.settlementAccount.upiId, `${state.rooms.length} rooms`, `${state.property.defaultTariff}/unit`],
+      highlights: [upiId, `${state.rooms.length} rooms`, `${defaultTariff}/unit`],
     },
   }[activeTab];
 
@@ -998,8 +1008,8 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
             )}
           </SectionCard>
           <SectionCard title="Property">
-            <KeyValueRow label="Payout UPI" value={state.settlementAccount.upiId} />
-            <KeyValueRow label="Electricity rate" value={`${state.property.defaultTariff}/unit`} />
+            <KeyValueRow label="Payout UPI" value={upiId} />
+            <KeyValueRow label="Electricity rate" value={`${defaultTariff}/unit`} />
             <KeyValueRow label="Final approvals waiting" value={String(summary.finalApprovals)} />
           </SectionCard>
         </>
@@ -1110,9 +1120,9 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       {activeTab === 'profile' ? (
         <>
           <SectionCard title="Profile">
-            <KeyValueRow label="Property" value={state.property.name} />
-            <KeyValueRow label="Manager" value={state.property.managerName} />
-            <KeyValueRow label="Phone" value={state.property.managerPhone} />
+            <KeyValueRow label="Property" value={propertyName} />
+            <KeyValueRow label="Manager" value={managerName || '-'} />
+            <KeyValueRow label="Phone" value={managerPhone || '-'} />
             <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
           </SectionCard>
           <SectionCard title="Settings">

@@ -4,7 +4,15 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "preview": {
+      "environment": "preview",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
+      "environment": "production",
       "android": {
         "buildType": "app-bundle",
         "autoIncrement": "versionCode"

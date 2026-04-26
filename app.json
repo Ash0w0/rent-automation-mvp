@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Rent Automation MVP",
-    "slug": "rent-automation-mvp",
+    "slug": "rent-automation",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -26,6 +26,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "f8ff83a3-8b79-4556-a0a4-a7466411ca3f"
+      }
+    },
+    "owner": "ashwinikkrs-organization"
   }
 }
