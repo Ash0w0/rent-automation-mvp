@@ -10,6 +10,16 @@ import { useRentAppModel } from './src/state/useRentAppModel';
 export default function App() {
   const { state, actions } = useRentAppModel();
 
+    if (!state || !state.session || state.isInitializing) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.center}>
+          <Text>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
