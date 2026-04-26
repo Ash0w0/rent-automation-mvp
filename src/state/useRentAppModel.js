@@ -166,10 +166,11 @@ useEffect(() => {
     },
 
     login(role, phone, code) {
-      return runServerAction(() => verifyOtp(role, phone, code), {
-        preserveSession: false,
+      return runServerAction(async () => {
+        await verifyOtp(role, phone, code);   // auth only
+        return await fetchAppState();         // full state 👈 REQUIRED
       });
-    },
+    }
 
     async logout() {
       await logoutSession();
