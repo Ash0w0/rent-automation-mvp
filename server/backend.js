@@ -308,6 +308,13 @@ async function getState(prisma, session = null) {
   const referenceDate = getTodayIso();
   await updateInvoiceStatuses(prisma, referenceDate);
 
+  const ownerPromise =
+    session?.role === 'owner' && session?.currentOwnerId
+      ? prisma.owner.findUnique({
+          where: { id: session.currentOwnerId },
+        })
+      : prisma.owner.findFirst(); // fallback if needed
+
   const [
     owner,
     property,
@@ -323,24 +330,14 @@ async function getState(prisma, session = null) {
     reminders,
     auditTrail,
   ] = await Promise.all([
-    prisma.owner.findFirst(),
+    ownerPromise,
     prisma.property.findFirst(),
     prisma.settlementAccount.findFirst(),
-    prisma.room.findMany({
-      orderBy: [{ label: 'asc' }],
-    }),
-    prisma.roomMeter.findMany({
-      orderBy: [{ roomId: 'asc' }],
-    }),
-    prisma.tenant.findMany({
-      orderBy: [{ fullName: 'asc' }],
-    }),
-    prisma.tenancy.findMany({
-      orderBy: [{ id: 'asc' }],
-    }),
-    prisma.contract.findMany({
-      orderBy: [{ createdAt: 'asc' }],
-    }),
+    prisma.room.findMany({ orderBy: [{ label: 'asc' }] }),
+    prisma.roomMeter.findMany({ orderBy: [{ roomId: 'asc' }] }),
+    prisma.tenant.findMany({ orderBy: [{ fullName: 'asc' }] }),
+    prisma.tenancy.findMany({ orderBy: [{ id: 'asc' }] }),
+    prisma.contract.findMany({ orderBy: [{ createdAt: 'asc' }] }),
     prisma.invoice.findMany({
       orderBy: [{ month: 'desc' }, { generatedAt: 'desc' }, { id: 'desc' }],
     }),
@@ -354,59 +351,56 @@ async function getState(prisma, session = null) {
       orderBy: [{ triggerDate: 'asc' }, { channel: 'asc' }, { id: 'asc' }],
     }),
     prisma.auditTrail.findMany({
-      select: {
-        id: true,
-        title: true,
-        detail: true,
-      },
+      select: { id: true, title: true, detail: true },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     }),
   ]);
 
   if (session?.role === 'tenant') {
     const currentTenantId = session.currentTenantId;
+
     const visibleTenancyIds = tenancies
-      .filter((tenancy) => tenancy.tenantId === currentTenantId)
-      .map((tenancy) => tenancy.id);
+      .filter((t) => t.tenantId === currentTenantId)
+      .map((t) => t.id);
+
     const visibleRoomIds = tenancies
-      .filter((tenancy) => tenancy.tenantId === currentTenantId)
-      .map((tenancy) => tenancy.roomId);
+      .filter((t) => t.tenantId === currentTenantId)
+      .map((t) => t.roomId);
+
     const visibleContractIds = tenancies
-      .filter((tenancy) => tenancy.tenantId === currentTenantId)
-      .map((tenancy) => tenancy.contractId)
+      .filter((t) => t.tenantId === currentTenantId)
+      .map((t) => t.contractId)
       .filter(Boolean);
 
     return {
       referenceDate,
       session,
       owner: owner
-        ? {
-            id: owner.id,
-            name: owner.name,
-          }
+        ? { id: owner.id, name: owner.name }
         : null,
       property,
       settlementAccount,
-      rooms: rooms.filter((room) => visibleRoomIds.includes(room.id)),
-      roomMeters: roomMeters.filter((meter) => visibleRoomIds.includes(meter.roomId)),
-      tenants: tenants.filter((tenant) => tenant.id === currentTenantId),
-      tenancies: tenancies.filter((tenancy) => tenancy.tenantId === currentTenantId),
+      rooms: rooms.filter((r) => visibleRoomIds.includes(r.id)),
+      roomMeters: roomMeters.filter((m) => visibleRoomIds.includes(m.roomId)),
+      tenants: tenants.filter((t) => t.id === currentTenantId),
+      tenancies: tenancies.filter((t) => t.tenantId === currentTenantId),
       contracts: applyInlineContractImages(
-        contracts.filter((contract) => visibleContractIds.includes(contract.id)),
+        contracts.filter((c) => visibleContractIds.includes(c.id))
       ),
-      invoices: invoices.filter((invoice) => invoice.tenantId === currentTenantId),
+      invoices: invoices.filter((i) => i.tenantId === currentTenantId),
       meterReadings: applyInlineUploadAccess(
         meterReadings.filter(
-          (reading) =>
-            reading.tenantId === currentTenantId || visibleTenancyIds.includes(reading.tenancyId),
+          (r) =>
+            r.tenantId === currentTenantId ||
+            visibleTenancyIds.includes(r.tenancyId)
         ),
-        'photoLabel',
+        'photoLabel'
       ),
       paymentSubmissions: applyInlineUploadAccess(
-        paymentSubmissions.filter((submission) => submission.tenantId === currentTenantId),
-        'screenshotLabel',
+        paymentSubmissions.filter((p) => p.tenantId === currentTenantId),
+        'screenshotLabel'
       ),
-      reminders: reminders.filter((reminder) => reminder.tenantId === currentTenantId),
+      reminders: reminders.filter((r) => r.tenantId === currentTenantId),
       auditTrail: [],
     };
   }
@@ -428,7 +422,7 @@ async function getState(prisma, session = null) {
     reminders,
     auditTrail,
   };
-}
+},
 
 function createRentBackend(options = {}) {
   const prisma = options.prisma || createPrismaClient();
