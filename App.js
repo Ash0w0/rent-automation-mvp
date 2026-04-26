@@ -10,7 +10,7 @@ import { useRentAppModel } from './src/state/useRentAppModel';
 export default function App() {
   const { state, actions } = useRentAppModel();
 
-    if (!state || !state.session || state.isInitializing) {
+    if (!state || state.isHydrating) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.center}>
