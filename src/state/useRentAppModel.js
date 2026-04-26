@@ -62,41 +62,56 @@ function buildNextState(serverState, currentState, options = {}) {
 export function useRentAppModel() {
   const [state, setState] = useState(createInitialState);
 
-  useEffect(() => {
-    let active = true;
+useEffect(() => {
+  let active = true;
 
-    async function hydrateState() {
+  async function hydrateState() {
+    try {
+      // Restore auth (tokens or cookies)
+      await hydrateStoredTokens();
+
+      let serverState = null;
+
       try {
-        await hydrateStoredTokens();
-        const serverState = await fetchAppState();
-
-        if (!active) {
-          return;
-        }
-
-        setState((currentState) => buildNextState(serverState, currentState));
+        serverState = await fetchAppState();
       } catch (error) {
-        if (!active) {
-          return;
-        }
-
         const message = normalizeError(error);
-        setState((currentState) => ({
-          ...currentState,
-          isHydrating: false,
-          isSyncing: false,
-          backendError:
-            /authentication required|session|token/i.test(message) ? null : message,
-        }));
+
+        // Ignore auth errors silently (user not logged in)
+        if (!/authentication required|session|token/i.test(message)) {
+          throw error;
+        }
       }
+
+      if (!active) return;
+      setState((currentState) =>
+        serverState
+          ? buildNextState(serverState, currentState)
+          : {
+              ...currentState,
+              isHydrating: false,
+              isSyncing: false,
+              backendError: null,
+            }
+      );
+    } catch (error) {
+      if (!active) return;
+
+      setState((currentState) => ({
+        ...currentState,
+        isHydrating: false,
+        isSyncing: false,
+        backendError: normalizeError(error),
+      }));
     }
+  }
 
-    hydrateState();
+  hydrateState();
 
-    return () => {
-      active = false;
-    };
-  }, []);
+  return () => {
+    active = false;
+  };
+}, []);
 
   async function runServerAction(task, options = {}) {
     setState((currentState) => ({
