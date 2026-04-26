@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, StyleSheet, View } from 'react-native';
+import { SafeAreaView, StyleSheet, View, Text } from 'react-native';
 
 import { AuthScreen } from './src/screens/AuthScreen';
 import { palette } from './src/components/uiAirbnb';
