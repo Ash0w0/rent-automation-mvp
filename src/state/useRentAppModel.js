@@ -170,7 +170,7 @@ useEffect(() => {
         await verifyOtp(role, phone, code);   // auth only
         return await fetchAppState();         // full state 👈 REQUIRED
       });
-    }
+    },
 
     async logout() {
       await logoutSession();
