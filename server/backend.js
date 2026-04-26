@@ -422,7 +422,7 @@ async function getState(prisma, session = null) {
     reminders,
     auditTrail,
   };
-},
+}
 
 function createRentBackend(options = {}) {
   const prisma = options.prisma || createPrismaClient();
