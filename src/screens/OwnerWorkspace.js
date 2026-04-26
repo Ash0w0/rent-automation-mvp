@@ -101,11 +101,11 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
   const [feedback, setFeedback] = useState(null);
 
   const [propertyForm, setPropertyForm] = useState({
-    name: state.property.name,
-    address: state.property.address,
-    managerName: state.property.managerName,
-    managerPhone: state.property.managerPhone,
-    defaultTariff: String(state.property.defaultTariff),
+    name: state?.property?.name,
+    address: state?.property?.address,
+    managerName: state?.property?.managerName,
+    managerPhone: state?.property?.managerPhone,
+    defaultTariff: String(state?.property?.defaultTariff),
   });
   const [settlementForm, setSettlementForm] = useState({
     payeeName: state.settlementAccount.payeeName,
@@ -138,7 +138,7 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
     month: toMonthKey(state.referenceDate),
     openingReading: '',
     closingReading: '',
-    tariff: String(state.property.defaultTariff),
+    tariff: String(state?.property?.defaultTariff),
   });
   const [moveOutForm, setMoveOutForm] = useState({
     tenancyId: '',
@@ -174,17 +174,17 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
 
   useEffect(() => {
     setPropertyForm({
-      name: state.property.name,
-      address: state.property.address,
-      managerName: state.property.managerName,
-      managerPhone: state.property.managerPhone,
-      defaultTariff: String(state.property.defaultTariff),
+      name: state?.property?.name,
+      address: state?.property?.address,
+      managerName: state?.property??.managerName,
+      managerPhone: state?.property?.managerPhone,
+      defaultTariff: String(state?.property?.defaultTariff),
     });
     setBillingForm((current) => ({
       ...current,
-      tariff: String(state.property.defaultTariff),
+      tariff: String(state?.property?.defaultTariff),
     }));
-  }, [state.property]);
+  }, [state?.property?]);
 
   useEffect(() => {
     setSettlementForm({
@@ -313,8 +313,8 @@ export function OwnerWorkspace({ state, actions, onLogout }) {
             { label: 'Proofs to review', value: summary.pendingApprovals },
           ]}
         />
-        <KeyValueRow label="Property" value={state.property.name} />
-        <KeyValueRow label="Manager" value={`${state.property.managerName} | ${state.property.managerPhone}`} />
+        <KeyValueRow label="Property" value={state?.property?.name} />
+        <KeyValueRow label="Manager" value={`${state?.property?.managerName} | ${state?.property?.managerPhone}`} />
         <KeyValueRow label="Collection UPI" value={state.settlementAccount.upiId} />
       </SectionCard>
 
