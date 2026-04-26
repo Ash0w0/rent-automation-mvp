@@ -537,58 +537,71 @@ function createRentBackend(options = {}) {
         };
       });
     },
+async verifyOtp({ role, phone, code }, requestMeta = {}) {
+  return run(async () => {
+    const rateKey = buildOtpRateKey(role, phone, requestMeta.ipAddress);
 
-    async verifyOtp({ role, phone, code }, requestMeta = {}) {
-      return run(async () => {
-        const rateKey = buildOtpRateKey(role, phone, requestMeta.ipAddress);
-        takeRateLimitedSlot(otpVerifyTracker, rateKey, {
-          windowMs: OTP_VERIFY_WINDOW_MS,
-          maxAttempts: OTP_VERIFY_MAX_ATTEMPTS,
-        });
+    takeRateLimitedSlot(otpVerifyTracker, rateKey, {
+      windowMs: OTP_VERIFY_WINDOW_MS,
+      maxAttempts: OTP_VERIFY_MAX_ATTEMPTS,
+    });
 
-        let identity;
-        let verification;
+    let identity;
+    let verification;
 
-        try {
-          identity = await findAuthIdentity(prisma, role, phone);
-          verification = await checkPhoneVerification(phone, code);
-        } catch (_error) {
-          if (_error?.code === 'ECONNABORTED') {
-            throw new Error('Verification service timed out. Please try again.');
-          }
-          throw new Error('The OTP is invalid or has expired.');
-        }
+    try {
+      identity = await findAuthIdentity(prisma, role, phone);
+      verification = await checkPhoneVerification(phone, code);
+    } catch (_error) {
+      if (_error?.code === 'ECONNABORTED') {
+        throw new Error('Verification service timed out. Please try again.');
+      }
+      throw new Error('The OTP is invalid or has expired.');
+    }
 
-        if (verification.status !== 'approved') {
-          throw new Error('The OTP is invalid or has expired.');
-        }
+    if (verification.status !== 'approved') {
+      throw new Error('The OTP is invalid or has expired.');
+    }
 
-        const now = new Date();
-        const session = createSessionRecord({
-          id: makeId('session'),
-          role: identity.role,
-          phone: identity.phone,
-          ownerId: identity.ownerId,
-          tenantId: identity.tenantId,
-          now,
-        });
-        const tokens = buildSessionTokens(session);
+    const now = new Date();
 
-        await prisma.authSession.create({
-          data: {
-            ...session,
-            refreshTokenHash: hashToken(tokens.refreshToken),
-          },
-        });
+    // ✅ Create proper session (single source of truth)
+    const session = createSessionRecord({
+      id: makeId('session'),
+      role: identity.role,
+      phone: identity.phone,
+      ownerId: identity.ownerId,
+      tenantId: identity.tenantId,
+      now,
+    });
 
-        const state = await getState(prisma);
+    const tokens = buildSessionTokens(session);
 
-        return {
-          tokens,
-          state: await getState(prisma, toSession(identity.role, identity.phone, state)),
-        };
-      });
-    },
+    // ✅ Persist session
+    await prisma.authSession.create({
+      data: {
+        ...session,
+        refreshTokenHash: hashToken(tokens.refreshToken),
+      },
+    });
+
+    // ✅ Build session payload for state (IMPORTANT FIX)
+    const sessionPayload = {
+      role: session.role,
+      phone: session.phone,
+      currentOwnerId: session.ownerId,
+      currentTenantId: session.tenantId,
+    };
+
+    // ✅ Fetch state USING session (this was broken before)
+    const state = await getState(prisma, sessionPayload);
+
+    return {
+      tokens,
+      state,
+    };
+  });
+},
 
     async refreshAuth({ refreshToken }) {
       return run(async () => {
