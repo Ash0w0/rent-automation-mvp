@@ -644,7 +644,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       subtitle: '',
     },
     invite: {
-      title: 'Invite room',
+      title: 'Invite tenant',
       subtitle: '',
     },
     activate: {
