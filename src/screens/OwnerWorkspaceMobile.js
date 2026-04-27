@@ -442,7 +442,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       const latestSubmission = latestInvoice ? latestSubmissionByInvoiceId.get(latestInvoice.id) : null;
       const tenant = tenancy ? getTenant(tenancy.tenantId) : latestInvoice ? getTenant(latestInvoice.tenantId) : null;
       let statusKind = room.status === 'VACANT' ? 'vacant' : 'paid';
-      let statusLabel = room.status === 'VACANT' ? 'Vacant' : 'Current';
+      let statusLabel = room.status === 'VACANT' ? 'Vacant' : 'Up to date';
 
       if (latestSubmission?.status === 'REJECTED') {
         statusKind = 'overdue';
