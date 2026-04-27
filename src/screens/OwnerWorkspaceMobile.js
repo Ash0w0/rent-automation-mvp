@@ -194,6 +194,116 @@ function QueueItemCard({ item }) {
   );
 }
 
+function OwnerOnboarding({ state, actions, onLogout }) {
+  const [feedback, setFeedback] = useState(null);
+  const [form, setForm] = useState({
+    name: '',
+    address: '',
+    managerName: state.owner?.name || '',
+    managerPhone: state.owner?.phone || state.session?.phone || '',
+    defaultTariff: '8.5',
+    payeeName: state.owner?.name || '',
+    upiId: '',
+    instructions: 'Use room number and month in your UPI note.',
+  });
+
+  useEffect(() => {
+    if (!feedback) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => setFeedback(null), 3200);
+    return () => clearTimeout(timeoutId);
+  }, [feedback]);
+
+  const updateField = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const submit = async () => {
+    try {
+      setFeedback(null);
+      await actions.createProperty({
+        ...form,
+        defaultTariff: Number(form.defaultTariff),
+      });
+    } catch (error) {
+      setFeedback({ tone: 'danger', text: error.message });
+    }
+  };
+
+  return (
+    <View style={styles.screenWrap}>
+      <ScreenSurface
+        hero={
+          <PageHeader
+            eyebrow="Owner setup"
+            title="Create property"
+            subtitle="Start here. The tour will guide the rest."
+          />
+        }
+      >
+        {state.isSyncing ? <Banner tone="info" message="Saving..." /> : null}
+        {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
+        {feedback ? <Banner tone={feedback.tone} message={feedback.text} /> : null}
+
+        <SectionCard title="Property" tone="accent">
+          <Field label="Property name" value={form.name} onChangeText={(value) => updateField('name', value)} placeholder="Lotus PG" />
+          <Field label="Address" value={form.address} onChangeText={(value) => updateField('address', value)} multiline />
+          <Field label="Manager name" value={form.managerName} onChangeText={(value) => updateField('managerName', value)} />
+          <Field label="Manager phone" value={form.managerPhone} onChangeText={(value) => updateField('managerPhone', value)} keyboardType="phone-pad" />
+          <Field label="Electricity rate" value={form.defaultTariff} onChangeText={(value) => updateField('defaultTariff', value)} keyboardType="decimal-pad" />
+          <PrimaryButton label="Create property" onPress={submit} />
+        </SectionCard>
+
+        <SectionCard title="Next">
+          <View style={styles.tourList}>
+            {['Add rooms', 'Assign tenants', 'Complete move-ins', 'Track rent'].map((label, index) => (
+              <View key={label} style={styles.tourRow}>
+                <View style={styles.tourStepDot}>
+                  <Text style={styles.tourStepDotText}>{index + 1}</Text>
+                </View>
+                <Text style={styles.tourStepTitle}>{label}</Text>
+              </View>
+            ))}
+          </View>
+          <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
+        </SectionCard>
+      </ScreenSurface>
+    </View>
+  );
+}
+
+function SetupTourCard({ steps, onOpen }) {
+  const completedCount = steps.filter((step) => step.done).length;
+  const nextStep = steps.find((step) => !step.done);
+
+  return (
+    <SectionCard title="Setup tour" subtitle={`${completedCount}/${steps.length} done`} tone="accent">
+      <View style={styles.tourList}>
+        {steps.map((step, index) => (
+          <View key={step.key} style={styles.tourRow}>
+            <View style={[styles.tourStepDot, step.done && styles.tourStepDotDone]}>
+              <Text style={[styles.tourStepDotText, step.done && styles.tourStepDotTextDone]}>
+                {step.done ? 'OK' : index + 1}
+              </Text>
+            </View>
+            <View style={styles.tourStepCopy}>
+              <Text style={styles.tourStepTitle}>{step.title}</Text>
+              {step.caption ? <Text style={styles.tourStepCaption}>{step.caption}</Text> : null}
+            </View>
+          </View>
+        ))}
+      </View>
+      {nextStep ? (
+        <PrimaryButton label={`Next: ${nextStep.title}`} onPress={() => onOpen(nextStep)} />
+      ) : (
+        <PrimaryButton label="Open rent" tone="secondary" onPress={() => onOpen({ tab: 'rent', mode: 'ledger' })} />
+      )}
+    </SectionCard>
+  );
+}
+
 function getDayDelta(referenceDate, targetDate) {
   const msPerDay = 1000 * 60 * 60 * 24;
   return Math.round((parseIsoDate(targetDate).getTime() - parseIsoDate(referenceDate).getTime()) / msPerDay);
@@ -466,7 +576,63 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     if (task.tab === 'rooms') {
       setResidentMode(task.mode);
     }
+    if (task.tab === 'profile') {
+      setProfileMode(task.mode);
+    }
   };
+
+  const setupTourSteps = [
+    {
+      key: 'property',
+      title: 'Property',
+      caption: propertyName,
+      done: Boolean(state.property?.id),
+      tab: 'profile',
+      mode: 'property',
+    },
+    {
+      key: 'payout',
+      title: 'Payouts',
+      caption: settlementAccount.upiId || 'UPI missing',
+      done: Boolean(settlementAccount.upiId),
+      tab: 'profile',
+      mode: 'collection',
+    },
+    {
+      key: 'rooms',
+      title: 'Add room',
+      caption: `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'}`,
+      done: state.rooms.length > 0,
+      tab: 'rooms',
+      mode: 'inventory',
+    },
+    {
+      key: 'invite',
+      title: 'Assign tenant',
+      caption: `${state.tenancies.length} assigned`,
+      done: state.tenancies.length > 0,
+      tab: 'rooms',
+      mode: vacantRooms.length ? 'invite' : 'inventory',
+    },
+    {
+      key: 'movein',
+      title: 'Start stay',
+      caption: `${activeTenancies.length} active`,
+      done: activeTenancies.length > 0,
+      tab: 'rooms',
+      mode: invitedTenancies.length ? 'activate' : 'invite',
+    },
+    {
+      key: 'rent',
+      title: 'Track rent',
+      caption: `${invoices.length} bill${invoices.length === 1 ? '' : 's'}`,
+      done: invoices.length > 0,
+      tab: 'rent',
+      mode: 'ledger',
+    },
+  ];
+  const isSetupTourComplete = setupTourSteps.every((step) => step.done);
+  const openTourStep = (step) => openTask(step);
 
   const residentSectionCopy = {
     inventory: {
@@ -975,6 +1141,10 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     );
   };
 
+  if (!state.property) {
+    return <OwnerOnboarding state={state} actions={actions} onLogout={onLogout} />;
+  }
+
   return (
     <View style={styles.screenWrap}>
     <ScreenSurface
@@ -993,6 +1163,9 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
       {activeTab === 'home' ? (
         <>
+          {!isSetupTourComplete ? (
+            <SetupTourCard steps={setupTourSteps} onOpen={openTourStep} />
+          ) : null}
           <SectionCard title="Snapshot" tone="soft">
             <MetricRow items={[{ label: 'Living now', value: summary.livingNow }, { label: 'Empty rooms', value: summary.availableRooms }, { label: 'Leaving soon', value: summary.leavingSoon }, { label: 'Unpaid', value: summary.unpaidNow }]} />
           </SectionCard>
@@ -1405,6 +1578,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 17,
+  },
+  tourList: {
+    alignSelf: 'stretch',
+    width: '100%',
+    gap: 10,
+  },
+  tourRow: {
+    alignSelf: 'stretch',
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
+  },
+  tourStepDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+  },
+  tourStepDotDone: {
+    backgroundColor: palette.success,
+    borderColor: palette.success,
+  },
+  tourStepDotText: {
+    color: palette.accentDeep,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  tourStepDotTextDone: {
+    color: palette.white,
+    fontSize: 9,
+  },
+  tourStepCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  tourStepTitle: {
+    flex: 1,
+    color: palette.ink,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  tourStepCaption: {
+    color: palette.inkSoft,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
   },
   residentActionCard: {
     alignSelf: 'stretch',

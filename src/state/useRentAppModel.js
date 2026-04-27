@@ -6,6 +6,7 @@ const {
   activateTenancy,
   closeTenancy,
   completeTenantProfile,
+  createProperty,
   fetchAppState,
   generateInvoice,
   hydrateStoredTokens,
@@ -185,6 +186,12 @@ useEffect(() => {
 
     updateProperty(payload) {
       return runServerAction(() => updateProperty(payload), {
+        preserveSession: true,
+      });
+    },
+
+    createProperty(payload) {
+      return runServerAction(() => createProperty(payload), {
         preserveSession: true,
       });
     },

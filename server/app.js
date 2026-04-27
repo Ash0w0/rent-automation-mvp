@@ -85,6 +85,12 @@ function createApp(backend) {
     response.status(200).json(await backend.getState(request.authSession));
   });
 
+  app.post('/api/property', async (request, response) => {
+    response
+      .status(201)
+      .json(await backend.createProperty(request.body || {}, request.authSession));
+  });
+
   app.patch('/api/property', async (request, response) => {
     response
       .status(200)

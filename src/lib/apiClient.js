@@ -180,6 +180,13 @@ function updateProperty(payload) {
   });
 }
 
+function createProperty(payload) {
+  return requestJson('/api/property', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
 function updateSettlement(payload) {
   return requestJson('/api/settlement', {
     method: 'PATCH',
@@ -276,6 +283,7 @@ module.exports = {
   closeTenancy,
   clearAuthTokens,
   completeTenantProfile,
+  createProperty,
   fetchAppState,
   generateInvoice,
   getApiBaseUrl,

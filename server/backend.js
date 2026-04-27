@@ -43,21 +43,28 @@ const OTP_VERIFY_MAX_ATTEMPTS = 10;
 const otpRequestTracker = new Map();
 const otpVerifyTracker = new Map();
 
-function toSession(role, phone, state) {
+function toSession(role, phone, state, identity = {}) {
   const normalizedPhone = normalizePhoneNumber(phone);
   if (role === 'owner') {
+    const ownerId = identity.ownerId || state.owner?.id;
+    if (!ownerId) {
+      throw new Error('Unable to map owner session for this phone number.');
+    }
+
     return {
       role: 'owner',
       phone: normalizedPhone,
       currentTenantId: null,
-      currentOwnerId: state.owner.id,
+      currentOwnerId: ownerId,
     };
   }
 
-  const tenant = state.tenants.find(
-    (record) => tryNormalizePhoneNumber(record.phone) === normalizedPhone,
-  );
-  if (!tenant) {
+  const tenant = identity.tenantId
+    ? { id: identity.tenantId }
+    : state.tenants.find(
+        (record) => tryNormalizePhoneNumber(record.phone) === normalizedPhone,
+      );
+  if (!tenant?.id) {
     throw new Error('Unable to map tenant session for this phone number.');
   }
   return {
@@ -135,6 +142,74 @@ function requireOwnerSession(session) {
   }
 
   return resolvedSession;
+}
+
+async function findOwnerForSession(prisma, session = null) {
+  if (session?.role === 'owner' && session.currentOwnerId) {
+    const owner = await prisma.owner.findUnique({
+      where: { id: session.currentOwnerId },
+    });
+
+    if (
+      owner &&
+      (!session.phone || tryNormalizePhoneNumber(owner.phone) === tryNormalizePhoneNumber(session.phone))
+    ) {
+      return owner;
+    }
+  }
+
+  if (session?.role === 'owner' && session.phone) {
+    const owner = await prisma.owner.findFirst({
+      where: { phone: { in: buildPhoneCandidates(session.phone) } },
+    });
+
+    if (owner) {
+      return owner;
+    }
+  }
+
+  if (session?.role === 'owner') {
+    return null;
+  }
+
+  return prisma.owner.findFirst({
+    orderBy: [{ id: 'asc' }],
+  });
+}
+
+async function findPropertyForOwnerSession(prisma, session) {
+  const owner = await findOwnerForSession(prisma, session);
+
+  if (!owner) {
+    return null;
+  }
+
+  return prisma.property.findFirst({
+    where: { ownerId: owner.id },
+    orderBy: [{ id: 'asc' }],
+  });
+}
+
+async function requireOwnerProperty(prisma, session) {
+  requireOwnerSession(session);
+  return requireRecord(
+    await findPropertyForOwnerSession(prisma, session),
+    'Create a property first.',
+  );
+}
+
+function cleanText(value) {
+  return String(value || '').trim();
+}
+
+function requireFiniteNumber(value, message) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    throw new Error(message);
+  }
+
+  return number;
 }
 
 function requireTenantSession(session) {
@@ -307,107 +382,212 @@ async function recordAudit(prisma, title, detail, referenceDate = getTodayIso())
 async function getState(prisma, session = null) {
   const referenceDate = getTodayIso();
   await updateInvoiceStatuses(prisma, referenceDate);
+  const resolvedSession = session || emptySession;
 
-  const ownerPromise =
-    session?.role === 'owner' && session?.currentOwnerId
-      ? prisma.owner.findUnique({
-          where: { id: session.currentOwnerId },
+  if (resolvedSession.role === 'tenant') {
+    const currentTenantId = resolvedSession.currentTenantId;
+    const tenant = currentTenantId
+      ? await prisma.tenant.findUnique({ where: { id: currentTenantId } })
+      : null;
+    const tenancies = tenant
+      ? await prisma.tenancy.findMany({
+          where: { tenantId: tenant.id },
+          orderBy: [{ id: 'asc' }],
         })
-      : prisma.owner.findFirst(); // fallback if needed
-
-  const [
-    owner,
-    property,
-    settlementAccount,
-    rooms,
-    roomMeters,
-    tenants,
-    tenancies,
-    contracts,
-    invoices,
-    meterReadings,
-    paymentSubmissions,
-    reminders,
-    auditTrail,
-  ] = await Promise.all([
-    ownerPromise,
-    prisma.property.findFirst(),
-    prisma.settlementAccount.findFirst(),
-    prisma.room.findMany({ orderBy: [{ label: 'asc' }] }),
-    prisma.roomMeter.findMany({ orderBy: [{ roomId: 'asc' }] }),
-    prisma.tenant.findMany({ orderBy: [{ fullName: 'asc' }] }),
-    prisma.tenancy.findMany({ orderBy: [{ id: 'asc' }] }),
-    prisma.contract.findMany({ orderBy: [{ createdAt: 'asc' }] }),
-    prisma.invoice.findMany({
-      orderBy: [{ month: 'desc' }, { generatedAt: 'desc' }, { id: 'desc' }],
-    }),
-    prisma.meterReading.findMany({
-      orderBy: [{ month: 'desc' }, { capturedAt: 'desc' }, { id: 'desc' }],
-    }),
-    prisma.paymentSubmission.findMany({
-      orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
-    }),
-    prisma.reminder.findMany({
-      orderBy: [{ triggerDate: 'asc' }, { channel: 'asc' }, { id: 'asc' }],
-    }),
-    prisma.auditTrail.findMany({
-      select: { id: true, title: true, detail: true },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    }),
-  ]);
-
-  if (session?.role === 'tenant') {
-    const currentTenantId = session.currentTenantId;
-
-    const visibleTenancyIds = tenancies
-      .filter((t) => t.tenantId === currentTenantId)
-      .map((t) => t.id);
-
-    const visibleRoomIds = tenancies
-      .filter((t) => t.tenantId === currentTenantId)
-      .map((t) => t.roomId);
-
+      : [];
+    const activeTenancy =
+      tenancies.find((tenancy) =>
+        [TENANCY_STATUS.ACTIVE, TENANCY_STATUS.MOVE_OUT_SCHEDULED, TENANCY_STATUS.INVITED].includes(
+          tenancy.status,
+        ),
+      ) || tenancies[0] || null;
+    const visibleTenancyIds = tenancies.map((tenancy) => tenancy.id);
+    const visibleRoomIds = tenancies.map((tenancy) => tenancy.roomId);
     const visibleContractIds = tenancies
-      .filter((t) => t.tenantId === currentTenantId)
-      .map((t) => t.contractId)
+      .map((tenancy) => tenancy.contractId)
       .filter(Boolean);
+    const readingFilters = [{ tenantId: tenant?.id || '' }];
+    if (visibleTenancyIds.length) {
+      readingFilters.push({ tenancyId: { in: visibleTenancyIds } });
+    }
+    const property = activeTenancy
+      ? await prisma.property.findUnique({ where: { id: activeTenancy.propertyId } })
+      : null;
+
+    const [
+      owner,
+      settlementAccount,
+      rooms,
+      roomMeters,
+      contracts,
+      invoices,
+      meterReadings,
+      paymentSubmissions,
+      reminders,
+    ] = await Promise.all([
+      property
+        ? prisma.owner.findUnique({ where: { id: property.ownerId } })
+        : prisma.owner.findFirst({ orderBy: [{ id: 'asc' }] }),
+      property
+        ? prisma.settlementAccount.findUnique({ where: { propertyId: property.id } })
+        : Promise.resolve(null),
+      visibleRoomIds.length
+        ? prisma.room.findMany({
+            where: { id: { in: visibleRoomIds } },
+            orderBy: [{ label: 'asc' }],
+          })
+        : Promise.resolve([]),
+      visibleRoomIds.length
+        ? prisma.roomMeter.findMany({
+            where: { roomId: { in: visibleRoomIds } },
+            orderBy: [{ roomId: 'asc' }],
+          })
+        : Promise.resolve([]),
+      visibleContractIds.length
+        ? prisma.contract.findMany({
+            where: { id: { in: visibleContractIds } },
+            orderBy: [{ createdAt: 'asc' }],
+          })
+        : Promise.resolve([]),
+      tenant
+        ? prisma.invoice.findMany({
+            where: { tenantId: tenant.id },
+            orderBy: [{ month: 'desc' }, { generatedAt: 'desc' }, { id: 'desc' }],
+          })
+        : Promise.resolve([]),
+      tenant
+        ? prisma.meterReading.findMany({
+            where: {
+              OR: readingFilters,
+            },
+            orderBy: [{ month: 'desc' }, { capturedAt: 'desc' }, { id: 'desc' }],
+          })
+        : Promise.resolve([]),
+      tenant
+        ? prisma.paymentSubmission.findMany({
+            where: { tenantId: tenant.id },
+            orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+          })
+        : Promise.resolve([]),
+      tenant
+        ? prisma.reminder.findMany({
+            where: { tenantId: tenant.id },
+            orderBy: [{ triggerDate: 'asc' }, { channel: 'asc' }, { id: 'asc' }],
+          })
+        : Promise.resolve([]),
+    ]);
 
     return {
       referenceDate,
-      session,
+      session: resolvedSession,
       owner: owner
         ? { id: owner.id, name: owner.name }
         : null,
       property,
       settlementAccount,
-      rooms: rooms.filter((r) => visibleRoomIds.includes(r.id)),
-      roomMeters: roomMeters.filter((m) => visibleRoomIds.includes(m.roomId)),
-      tenants: tenants.filter((t) => t.id === currentTenantId),
-      tenancies: tenancies.filter((t) => t.tenantId === currentTenantId),
-      contracts: applyInlineContractImages(
-        contracts.filter((c) => visibleContractIds.includes(c.id))
-      ),
-      invoices: invoices.filter((i) => i.tenantId === currentTenantId),
-      meterReadings: applyInlineUploadAccess(
-        meterReadings.filter(
-          (r) =>
-            r.tenantId === currentTenantId ||
-            visibleTenancyIds.includes(r.tenancyId)
-        ),
-        'photoLabel'
-      ),
-      paymentSubmissions: applyInlineUploadAccess(
-        paymentSubmissions.filter((p) => p.tenantId === currentTenantId),
-        'screenshotLabel'
-      ),
-      reminders: reminders.filter((r) => r.tenantId === currentTenantId),
+      rooms,
+      roomMeters,
+      tenants: tenant ? [tenant] : [],
+      tenancies,
+      contracts: applyInlineContractImages(contracts),
+      invoices,
+      meterReadings: applyInlineUploadAccess(meterReadings, 'photoLabel'),
+      paymentSubmissions: applyInlineUploadAccess(paymentSubmissions, 'screenshotLabel'),
+      reminders,
       auditTrail: [],
     };
   }
 
+  const owner = await findOwnerForSession(prisma, resolvedSession);
+  const property = owner
+    ? await prisma.property.findFirst({
+        where: { ownerId: owner.id },
+        orderBy: [{ id: 'asc' }],
+      })
+    : null;
+
+  if (!property) {
+    return {
+      referenceDate,
+      session: resolvedSession,
+      owner,
+      property: null,
+      settlementAccount: null,
+      rooms: [],
+      roomMeters: [],
+      tenants: [],
+      tenancies: [],
+      contracts: [],
+      invoices: [],
+      meterReadings: [],
+      paymentSubmissions: [],
+      reminders: [],
+      auditTrail: [],
+    };
+  }
+
+  const [
+    settlementAccount,
+    rooms,
+    roomMeters,
+    tenancies,
+    invoices,
+    meterReadings,
+    reminders,
+  ] = await Promise.all([
+    prisma.settlementAccount.findUnique({ where: { propertyId: property.id } }),
+    prisma.room.findMany({
+      where: { propertyId: property.id },
+      orderBy: [{ label: 'asc' }],
+    }),
+    prisma.roomMeter.findMany({
+      where: { propertyId: property.id },
+      orderBy: [{ roomId: 'asc' }],
+    }),
+    prisma.tenancy.findMany({
+      where: { propertyId: property.id },
+      orderBy: [{ id: 'asc' }],
+    }),
+    prisma.invoice.findMany({
+      where: { propertyId: property.id },
+      orderBy: [{ month: 'desc' }, { generatedAt: 'desc' }, { id: 'desc' }],
+    }),
+    prisma.meterReading.findMany({
+      where: { propertyId: property.id },
+      orderBy: [{ month: 'desc' }, { capturedAt: 'desc' }, { id: 'desc' }],
+    }),
+    prisma.reminder.findMany({
+      where: { propertyId: property.id },
+      orderBy: [{ triggerDate: 'asc' }, { channel: 'asc' }, { id: 'asc' }],
+    }),
+  ]);
+  const tenantIds = [...new Set(tenancies.map((tenancy) => tenancy.tenantId).filter(Boolean))];
+  const contractIds = [...new Set(tenancies.map((tenancy) => tenancy.contractId).filter(Boolean))];
+  const invoiceIds = invoices.map((invoice) => invoice.id);
+  const [tenants, contracts, paymentSubmissions] = await Promise.all([
+    tenantIds.length
+      ? prisma.tenant.findMany({
+          where: { id: { in: tenantIds } },
+          orderBy: [{ fullName: 'asc' }],
+        })
+      : Promise.resolve([]),
+    contractIds.length
+      ? prisma.contract.findMany({
+          where: { id: { in: contractIds } },
+          orderBy: [{ createdAt: 'asc' }],
+        })
+      : Promise.resolve([]),
+    invoiceIds.length
+      ? prisma.paymentSubmission.findMany({
+          where: { invoiceId: { in: invoiceIds } },
+          orderBy: [{ submittedAt: 'desc' }, { id: 'desc' }],
+        })
+      : Promise.resolve([]),
+  ]);
+
   return {
     referenceDate,
-    session: session || emptySession,
+    session: resolvedSession,
     owner,
     property,
     settlementAccount,
@@ -420,7 +600,7 @@ async function getState(prisma, session = null) {
     meterReadings: applyInlineUploadAccess(meterReadings, 'photoLabel'),
     paymentSubmissions: applyInlineUploadAccess(paymentSubmissions, 'screenshotLabel'),
     reminders,
-    auditTrail,
+    auditTrail: [],
   };
 }
 
@@ -596,7 +776,6 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
     };
   });
 },
-
     async refreshAuth({ refreshToken }) {
       return run(async () => {
         const payload = verifyToken(refreshToken);
@@ -650,7 +829,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
         return {
           tokens,
-          state: await getState(prisma, toSession(payload.role, payload.phone, state)),
+          state: await getState(prisma, toSession(payload.role, payload.phone, state, payload)),
         };
       });
     },
@@ -687,20 +866,107 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
       });
     },
 
+    async createProperty(payload, session) {
+      return run(async () => {
+        const ownerSession = requireOwnerSession(session);
+        const owner = requireRecord(
+          await findOwnerForSession(prisma, ownerSession),
+          'Owner not found.',
+        );
+        const name = cleanText(payload.name);
+        const address = cleanText(payload.address);
+        const managerName = cleanText(payload.managerName || owner.name);
+        const managerPhone = cleanText(payload.managerPhone || owner.phone);
+        const defaultTariff = requireFiniteNumber(
+          payload.defaultTariff || 0,
+          'Default electricity rate must be a valid number.',
+        );
+        const payeeName = cleanText(payload.payeeName || `${name} Rentals`);
+        const upiId = cleanText(payload.upiId);
+        const instructions = cleanText(payload.instructions || 'Use room number and month in your UPI note.');
+
+        if (!name || !address || !managerName || !managerPhone) {
+          throw new Error('Property name, address, manager name, and manager phone are required.');
+        }
+
+        const existingProperty = await prisma.property.findFirst({
+          where: { ownerId: owner.id },
+          orderBy: [{ id: 'asc' }],
+        });
+
+        await prisma.$transaction(async (tx) => {
+          const propertyId = existingProperty?.id || makeId('property');
+
+          if (existingProperty) {
+            await tx.property.update({
+              where: { id: existingProperty.id },
+              data: {
+                name,
+                address,
+                defaultTariff,
+                managerName,
+                managerPhone,
+              },
+            });
+          } else {
+            await tx.property.create({
+              data: {
+                id: propertyId,
+                ownerId: owner.id,
+                name,
+                address,
+                defaultTariff,
+                managerName,
+                managerPhone,
+              },
+            });
+          }
+
+          await tx.settlementAccount.upsert({
+            where: { propertyId },
+            update: {
+              payeeName,
+              upiId,
+              instructions,
+            },
+            create: {
+              id: makeId('settlement'),
+              propertyId,
+              payeeName,
+              upiId,
+              instructions,
+            },
+          });
+
+          await recordAudit(
+            tx,
+            existingProperty ? 'Property updated' : 'Property created',
+            `${name} is ready for setup.`,
+          );
+        });
+
+        return getState(prisma, ownerSession);
+      });
+    },
+
     async updateProperty(payload, session) {
       return run(async () => {
         requireOwnerSession(session);
-        const property = requireRecord(await prisma.property.findFirst(), 'Property not found.');
+        const property = await requireOwnerProperty(prisma, session);
         const nextProperty = { ...property, ...payload };
+        const defaultTariff = requireFiniteNumber(
+          nextProperty.defaultTariff,
+          'Default electricity rate must be a valid number.',
+        );
 
         await prisma.property.update({
           where: { id: property.id },
           data: {
-            name: nextProperty.name,
-            address: nextProperty.address,
-            defaultTariff: Number(nextProperty.defaultTariff),
-            managerName: nextProperty.managerName,
-            managerPhone: nextProperty.managerPhone,
+            name: cleanText(nextProperty.name),
+            address: cleanText(nextProperty.address),
+            defaultTariff,
+            managerName: cleanText(nextProperty.managerName),
+            managerPhone: cleanText(nextProperty.managerPhone),
           },
         });
 
@@ -712,18 +978,32 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
     async updateSettlement(payload, session) {
       return run(async () => {
         requireOwnerSession(session);
-        const settlement = requireRecord(
-          await prisma.settlementAccount.findFirst(),
-          'Settlement account not found.',
-        );
+        const property = await requireOwnerProperty(prisma, session);
+        const settlement = await prisma.settlementAccount.findUnique({
+          where: { propertyId: property.id },
+        });
         const nextSettlement = { ...settlement, ...payload };
+        const payeeName = cleanText(nextSettlement.payeeName);
+        const upiId = cleanText(nextSettlement.upiId);
+        const instructions = cleanText(nextSettlement.instructions);
 
-        await prisma.settlementAccount.update({
-          where: { id: settlement.id },
-          data: {
-            payeeName: nextSettlement.payeeName,
-            upiId: nextSettlement.upiId,
-            instructions: nextSettlement.instructions,
+        if (!payeeName || !upiId) {
+          throw new Error('Payee name and UPI ID are required.');
+        }
+
+        await prisma.settlementAccount.upsert({
+          where: { propertyId: property.id },
+          update: {
+            payeeName,
+            upiId,
+            instructions,
+          },
+          create: {
+            id: makeId('settlement'),
+            propertyId: property.id,
+            payeeName,
+            upiId,
+            instructions,
           },
         });
 
@@ -735,7 +1015,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
     async addRoom(input, session) {
       return run(async () => {
         requireOwnerSession(session);
-        const property = requireRecord(await prisma.property.findFirst(), 'Property not found.');
+        const property = await requireOwnerProperty(prisma, session);
 
         if (!input.label || !input.floor || !input.serialNumber) {
           throw new Error('Room label, floor, and meter serial number are required.');
@@ -788,6 +1068,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
     async inviteTenant(input, session) {
       return run(async () => {
         requireOwnerSession(session);
+        const property = await requireOwnerProperty(prisma, session);
         if (!input.fullName || !input.phone || !input.roomId) {
           throw new Error('Tenant name, phone, and room selection are required.');
         }
@@ -802,6 +1083,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('Only vacant rooms can be assigned to a new tenant invite.');
         }
 
+        if (room.propertyId !== property.id) {
+          throw new Error('Choose a room from your property.');
+        }
+
         const duplicateTenant = await prisma.tenant.findFirst({
           where: { phone: { in: buildPhoneCandidates(normalizedInvitePhone) } },
           select: { id: true },
@@ -811,7 +1096,6 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('That phone number is already associated with another tenant.');
         }
 
-        const property = requireRecord(await prisma.property.findFirst(), 'Property not found.');
         const { tenant, tenancy } = createTenantInvite({
           propertyId: property.id,
           roomId: input.roomId,
@@ -957,10 +1241,15 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
     async generateInvoice(input, session) {
       return run(async () => {
         requireOwnerSession(session);
+        const ownerProperty = await requireOwnerProperty(prisma, session);
         const tenancy = requireRecord(
           await prisma.tenancy.findUnique({ where: { id: input.tenancyId } }),
           'Select an active tenancy before generating an invoice.',
         );
+
+        if (tenancy.propertyId !== ownerProperty.id) {
+          throw new Error('Choose a stay from your property.');
+        }
 
         if (![TENANCY_STATUS.ACTIVE, TENANCY_STATUS.MOVE_OUT_SCHEDULED].includes(tenancy.status)) {
           throw new Error('Only active or moving-out tenancies can be billed.');
@@ -996,9 +1285,9 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
         }
 
         const [property, room, settlementAccount, meter] = await Promise.all([
-          prisma.property.findFirst(),
+          prisma.property.findUnique({ where: { id: tenancy.propertyId } }),
           prisma.room.findUnique({ where: { id: tenancy.roomId } }),
-          prisma.settlementAccount.findFirst(),
+          prisma.settlementAccount.findUnique({ where: { propertyId: tenancy.propertyId } }),
           prisma.roomMeter.findUnique({ where: { roomId: tenancy.roomId } }),
         ]);
 
@@ -1070,10 +1359,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
         const month = input.month || getTodayIso().slice(0, 7);
         const [property, room, meter, settlementAccount] = await Promise.all([
-          prisma.property.findFirst(),
+          prisma.property.findUnique({ where: { id: tenancy.propertyId } }),
           prisma.room.findUnique({ where: { id: tenancy.roomId } }),
           prisma.roomMeter.findUnique({ where: { roomId: tenancy.roomId } }),
-          prisma.settlementAccount.findFirst(),
+          prisma.settlementAccount.findUnique({ where: { propertyId: tenancy.propertyId } }),
         ]);
 
         const resolvedProperty = requireRecord(property, 'Property not found.');
@@ -1159,10 +1448,15 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
     async reviewMeterReading(input, session) {
       return run(async () => {
         requireOwnerSession(session);
+        const ownerProperty = await requireOwnerProperty(prisma, session);
         const reading = requireRecord(
           await prisma.meterReading.findUnique({ where: { id: input.meterReadingId } }),
           'Choose a meter reading waiting for review.',
         );
+
+        if (reading.propertyId !== ownerProperty.id) {
+          throw new Error('Choose a meter reading from your property.');
+        }
 
         if (reading.status !== METER_READING_STATUS.PENDING_REVIEW) {
           throw new Error('Only pending meter readings can be reviewed.');
@@ -1171,7 +1465,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
         const [tenancy, room, settlementAccount, meter] = await Promise.all([
           prisma.tenancy.findUnique({ where: { id: reading.tenancyId } }),
           prisma.room.findUnique({ where: { id: reading.roomId } }),
-          prisma.settlementAccount.findFirst(),
+          prisma.settlementAccount.findUnique({ where: { propertyId: reading.propertyId } }),
           prisma.roomMeter.findUnique({ where: { id: reading.meterId } }),
         ]);
 

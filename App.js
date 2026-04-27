@@ -42,7 +42,7 @@ class AppErrorBoundary extends React.Component {
 export default function App() {
   const { state, actions } = useRentAppModel();
 
-    if (!state || state.isHydrating) {
+  if (!state || state.isHydrating) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.center}>
@@ -88,5 +88,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 20,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
