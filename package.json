@@ -11,7 +11,9 @@
     "test": "node --test",
     "sheets:init": "node scripts/sheets.js init",
     "sheets:seed": "node scripts/sheets.js seed",
-    "sheets:validate": "node scripts/sheets.js validate"
+    "sheets:validate": "node scripts/sheets.js validate",
+    "owner:create": "node scripts/owners.js create",
+    "owner:reset-password": "node scripts/owners.js reset-password"
   },
   "dependencies": {
     "cors": "^2.8.6",
@@ -28,7 +30,6 @@
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-web": "^0.21.0",
-    "twilio": "^5.10.4",
     "typescript": "~5.9.2"
   },
   "private": true

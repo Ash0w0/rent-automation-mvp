@@ -30,10 +30,22 @@ Keep `JWT_SECRET` and the Twilio env vars configured as before.
 npm run sheets:init
 npm run sheets:seed
 npm run sheets:validate
+npm run owner:create -- --name "Asha Rao" --phone "8002822133"
 npm run server
 ```
 
 `sheets:init` creates the required tabs and headers. `sheets:seed` only seeds demo data if the Sheet has no owner rows yet.
+
+## Free Login
+
+This branch uses phone number plus password/invite code. OTP and Twilio are not part of the active auth flow.
+
+- Owner credentials live in the `auth_credentials` tab as hashes only.
+- Create an owner with `npm run owner:create -- --name "Owner Name" --phone "8002822133"`.
+- Reset an owner with `npm run owner:reset-password -- --phone "8002822133"`.
+- The script prints a one-time temporary invite code. The owner must set a new password after first login.
+- When an owner assigns a tenant to a room, the app shows a one-time temporary password for that tenant.
+- Tenant temporary passwords can be reset from the owner room list.
 
 ## Notes
 

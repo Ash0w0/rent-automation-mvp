@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
@@ -10,97 +10,19 @@ const {
   normalizePhoneForCountry,
 } = require('../lib/countryPhone');
 
-const RESEND_WAIT_SECONDS = 30;
-
-function formatResendCountdown(seconds) {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
-}
-
-function maskPhoneNumber(phone) {
-  const digits = String(phone || '').replace(/\D+/g, '');
-  if (digits.length < 8) {
-    return 'your number';
-  }
-
-  return `${digits.slice(0, 2)}••••••${digits.slice(-2)}`;
-}
-
-export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError = null }) {
+export function AuthScreen({ onLogin, isBusy = false, backendError = null }) {
   const [role, setRole] = useState('tenant');
   const [phone, setPhone] = useState('');
   const [countryDialCode, setCountryDialCode] = useState(DEFAULT_DIAL_CODE);
-  const [otp, setOtp] = useState('');
-  const [step, setStep] = useState('request');
+  const [password, setPassword] = useState('');
   const [message, setMessage] = useState(null);
-  const [resendCountdown, setResendCountdown] = useState(0);
-
-  useEffect(() => {
-    if (step !== 'verify' || resendCountdown <= 0) {
-      return undefined;
-    }
-
-    const timeoutId = setTimeout(() => {
-      setResendCountdown((current) => Math.max(0, current - 1));
-    }, 1000);
-
-    return () => clearTimeout(timeoutId);
-  }, [step, resendCountdown]);
-
-  const sendOtp = async (normalizedPhone) => {
-    await onRequestOtp(role, normalizedPhone);
-    setStep('verify');
-    setPhone(normalizedPhone);
-    setResendCountdown(RESEND_WAIT_SECONDS);
-    setMessage({
-      tone: 'info',
-      text: 'OTP sent.',
-    });
-  };
 
   const handleRoleChange = (nextRole) => {
     setRole(nextRole);
     setPhone('');
     setCountryDialCode(DEFAULT_DIAL_CODE);
-    setOtp('');
-    setStep('request');
+    setPassword('');
     setMessage(null);
-    setResendCountdown(0);
-  };
-
-  const handleRequestOtp = async () => {
-    const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
-    if (!normalizedPhone) {
-      setMessage({
-        tone: 'danger',
-        text: buildPhoneValidationMessage(countryDialCode),
-      });
-      return;
-    }
-
-    try {
-      await sendOtp(normalizedPhone);
-    } catch (error) {
-      setMessage({ tone: 'danger', text: error.message });
-    }
-  };
-
-  const handleResendOtp = async () => {
-    const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
-    if (!normalizedPhone) {
-      setMessage({
-        tone: 'danger',
-        text: buildPhoneValidationMessage(countryDialCode),
-      });
-      return;
-    }
-
-    try {
-      await sendOtp(normalizedPhone);
-    } catch (error) {
-      setMessage({ tone: 'danger', text: error.message });
-    }
   };
 
   const handleLogin = async () => {
@@ -113,8 +35,16 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
       return;
     }
 
+    if (!password) {
+      setMessage({
+        tone: 'danger',
+        text: 'Enter your password or invite code.',
+      });
+      return;
+    }
+
     try {
-      await onLogin(role, normalizedPhone, otp);
+      await onLogin(role, normalizedPhone, password);
       setMessage(null);
     } catch (error) {
       setMessage({ tone: 'danger', text: error.message });
@@ -122,15 +52,9 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
   };
 
   const isOwner = role === 'owner';
-  const title = step === 'verify' ? 'Verify OTP' : isOwner ? 'Owner sign in' : 'Tenant sign in';
-  const subtitle =
-    step === 'verify'
-      ? `Code sent to ${maskPhoneNumber(phone)}.`
-      : isOwner
-        ? 'Manage your property.'
-        : 'Use your invited number.';
-  const buttonLabel = step === 'request' ? 'Send OTP' : isBusy ? 'Please wait...' : 'Verify';
-  const resendCountdownLabel = formatResendCountdown(resendCountdown);
+  const title = isOwner ? 'Owner sign in' : 'Tenant sign in';
+  const subtitle = isOwner ? 'Use your phone and password.' : 'Use the password shared by your owner.';
+  const buttonLabel = isBusy ? 'Please wait...' : 'Log in';
 
   return (
     <View style={styles.root}>
@@ -163,27 +87,47 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
             {backendError ? <Banner tone="danger" message={backendError} /> : null}
             {isBusy ? <Banner tone="info" message="Connecting..." /> : null}
 
+            <View style={styles.roleTabs}>
+              {['tenant', 'owner'].map((item) => {
+                const active = role === item;
+
+                return (
+                  <Pressable
+                    key={item}
+                    onPress={() => handleRoleChange(item)}
+                    style={({ pressed }) => [
+                      styles.rolePill,
+                      active && styles.rolePillActive,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={[styles.roleText, active && styles.roleTextActive]}>
+                      {item === 'owner' ? 'Owner' : 'Tenant'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             <View style={styles.formBlock}>
               <CountryCodePicker
                 dialCode={countryDialCode}
                 onDialCodeChange={setCountryDialCode}
                 phone={phone}
                 onPhoneChange={setPhone}
-                placeholder="Enter mobile number"
+                placeholder="Mobile number"
               />
-              {step === 'verify' ? (
-                <Field
-                  label="OTP"
-                  value={otp}
-                  onChangeText={setOtp}
-                  placeholder="6-digit OTP"
-                  keyboardType="numeric"
-                />
-              ) : null}
+              <Field
+                label="Password or invite code"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Enter password"
+                secureTextEntry
+              />
             </View>
 
             <Pressable
-              onPress={step === 'request' ? handleRequestOtp : handleLogin}
+              onPress={handleLogin}
               disabled={isBusy}
               style={({ pressed }) => [
                 styles.primaryButton,
@@ -192,54 +136,96 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
               ]}
             >
               <Text style={styles.primaryButtonText}>{buttonLabel}</Text>
-              <Text style={styles.primaryButtonArrow}>{'>>'}</Text>
             </Pressable>
+          </View>
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
 
-            {step === 'verify' ? (
-              <Pressable
-                onPress={() => {
-                  setStep('request');
-                  setOtp('');
-                  setMessage(null);
-                  setResendCountdown(0);
-                }}
-                style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
-              >
-                <Text style={styles.ownerText}>
-                  Wrong number? <Text style={styles.ownerLinkText}>Change</Text>
-                </Text>
-              </Pressable>
-            ) : null}
+export function PasswordSetupScreen({ onSetPassword, isBusy = false, backendError = null }) {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState(null);
 
-            {step === 'verify' ? (
-              resendCountdown > 0 ? (
-                <View style={styles.ownerLinkWrap}>
-                  <Text style={styles.ownerText}>Resend in {resendCountdownLabel}</Text>
-                </View>
-              ) : (
-                <Pressable
-                  onPress={handleResendOtp}
-                  disabled={isBusy}
-                  style={({ pressed }) => [
-                    styles.ownerLinkWrap,
-                    isBusy && styles.ownerLinkDisabled,
-                    pressed && !isBusy && styles.ownerLinkPressed,
-                  ]}
-                >
-                  <Text style={styles.ownerText}>
-                    <Text style={styles.ownerLinkText}>Resend OTP</Text>
-                  </Text>
-                </Pressable>
-              )
-            ) : null}
+  const handleSubmit = async () => {
+    if (password.length < 6) {
+      setMessage({ tone: 'danger', text: 'Use at least 6 characters.' });
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setMessage({ tone: 'danger', text: 'Passwords do not match.' });
+      return;
+    }
+
+    try {
+      await onSetPassword(password);
+      setMessage(null);
+    } catch (error) {
+      setMessage({ tone: 'danger', text: error.message });
+    }
+  };
+
+  return (
+    <View style={styles.root}>
+      <StatusBar style="light" />
+      <View style={styles.mobileShell}>
+        <View style={styles.hero}>
+          <View style={[styles.heroShape, styles.heroShapeLeft]} />
+          <View style={[styles.heroShape, styles.heroShapeCenter]} />
+          <View style={[styles.heroShape, styles.heroShapeRight]} />
+        </View>
+
+        <ScrollView
+          style={styles.sheet}
+          contentContainerStyle={styles.sheetContent}
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.logoBadge}>
+            <View style={styles.logoInner}>
+              <Text style={styles.logoPrimary}>RENT</Text>
+              <Text style={styles.logoSecondary}>AUTOMATION</Text>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.title}>Create password</Text>
+            <Text style={styles.subtitle}>This replaces your temporary invite code.</Text>
+
+            {message ? <Banner tone={message.tone} message={message.text} /> : null}
+            {backendError ? <Banner tone="danger" message={backendError} /> : null}
+            {isBusy ? <Banner tone="info" message="Saving..." /> : null}
+
+            <View style={styles.formBlock}>
+              <Field
+                label="New password"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Minimum 6 characters"
+                secureTextEntry
+              />
+              <Field
+                label="Confirm password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Repeat password"
+                secureTextEntry
+              />
+            </View>
 
             <Pressable
-              onPress={() => handleRoleChange(isOwner ? 'tenant' : 'owner')}
-              style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
+              onPress={handleSubmit}
+              disabled={isBusy}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                isBusy && styles.primaryButtonDisabled,
+                pressed && !isBusy && styles.primaryButtonPressed,
+              ]}
             >
-              <Text style={styles.ownerText}>
-                <Text style={styles.ownerLinkText}>{isOwner ? 'Switch to tenant' : 'Switch to owner'}</Text>
-              </Text>
+              <Text style={styles.primaryButtonText}>{isBusy ? 'Please wait...' : 'Save password'}</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -350,6 +336,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: -4,
   },
+  roleTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 5,
+    borderRadius: 999,
+    backgroundColor: palette.surfaceMuted,
+  },
+  rolePill: {
+    flex: 1,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+  },
+  rolePillActive: {
+    backgroundColor: palette.accent,
+  },
+  roleText: {
+    color: palette.inkSoft,
+    fontWeight: '800',
+  },
+  roleTextActive: {
+    color: palette.white,
+  },
   formBlock: {
     gap: 14,
   },
@@ -357,10 +367,8 @@ const styles = StyleSheet.create({
     minHeight: 58,
     borderRadius: 999,
     backgroundColor: '#24C9AE',
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
     paddingHorizontal: 20,
   },
   primaryButtonDisabled: {
@@ -374,31 +382,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
   },
-  primaryButtonArrow: {
-    fontSize: 22,
-    lineHeight: 22,
-    fontWeight: '700',
-    color: '#DFFBF6',
-    marginTop: -2,
-  },
-  ownerLinkWrap: {
-    alignItems: 'center',
-    paddingTop: 2,
-  },
-  ownerLinkPressed: {
+  pressed: {
     opacity: 0.7,
-  },
-  ownerLinkDisabled: {
-    opacity: 0.55,
-  },
-  ownerText: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: palette.muted,
-    textAlign: 'center',
-  },
-  ownerLinkText: {
-    color: '#24C9AE',
-    fontWeight: '700',
   },
 });

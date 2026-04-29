@@ -120,23 +120,29 @@ function clearAuthTokens() {
   });
 }
 
-function requestOtp(role, phone) {
-  return requestJson('/api/auth/request-otp', {
+async function login(role, phone, password) {
+  const payload = await requestJson('/api/auth/login', {
     method: 'POST',
-    body: { role, phone },
-    auth: false,
-  });
-}
-
-async function verifyOtp(role, phone, code) {
-  const payload = await requestJson('/api/auth/verify-otp', {
-    method: 'POST',
-    body: { role, phone, code },
+    body: { role, phone, password },
     auth: false,
   });
 
   await setAuthTokens(payload.tokens);
   return payload.state;
+}
+
+function setPassword(password) {
+  return requestJson('/api/auth/set-password', {
+    method: 'POST',
+    body: { password },
+  });
+}
+
+function changePassword(currentPassword, nextPassword) {
+  return requestJson('/api/auth/change-password', {
+    method: 'POST',
+    body: { currentPassword, nextPassword },
+  });
 }
 
 async function refreshSession() {
@@ -215,6 +221,12 @@ function completeTenantProfile(tenantId, payload) {
   });
 }
 
+function resetTenantPassword(tenantId) {
+  return requestJson(`/api/tenants/${tenantId}/reset-password`, {
+    method: 'POST',
+  });
+}
+
 function activateTenancy(tenancyId, payload) {
   return requestJson(`/api/tenancies/${tenancyId}/activate`, {
     method: 'POST',
@@ -280,6 +292,7 @@ function closeTenancy(tenancyId) {
 module.exports = {
   addRoom,
   activateTenancy,
+  changePassword,
   closeTenancy,
   clearAuthTokens,
   completeTenantProfile,
@@ -289,17 +302,18 @@ module.exports = {
   getApiBaseUrl,
   hydrateStoredTokens,
   inviteTenant,
+  login,
   logoutSession,
   refreshSession,
   resolveUploadUrl,
-  requestOtp,
+  resetTenantPassword,
   reviewMeterReading,
   reviewPayment,
   scheduleMoveOut,
+  setPassword,
   submitMeterReading,
   submitPayment,
   updateProperty,
   updateReminderStatus,
   updateSettlement,
-  verifyOtp,
 };

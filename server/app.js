@@ -44,16 +44,8 @@ function createApp(backend) {
     });
   });
 
-  app.post('/api/auth/request-otp', async (request, response) => {
-    response
-      .status(200)
-      .json(await backend.requestOtp(request.body || {}, { ipAddress: request.ip }));
-  });
-
-  app.post('/api/auth/verify-otp', async (request, response) => {
-    response
-      .status(200)
-      .json(await backend.verifyOtp(request.body || {}, { ipAddress: request.ip }));
+  app.post('/api/auth/login', async (request, response) => {
+    response.status(200).json(await backend.login(request.body || {}, { ipAddress: request.ip }));
   });
 
   app.post('/api/auth/refresh', async (request, response) => {
@@ -83,6 +75,14 @@ function createApp(backend) {
 
   app.get('/api/state', async (request, response) => {
     response.status(200).json(await backend.getState(request.authSession));
+  });
+
+  app.post('/api/auth/set-password', async (request, response) => {
+    response.status(200).json(await backend.setPassword(request.body || {}, request.authSession));
+  });
+
+  app.post('/api/auth/change-password', async (request, response) => {
+    response.status(200).json(await backend.changePassword(request.body || {}, request.authSession));
   });
 
   app.post('/api/property', async (request, response) => {
@@ -123,6 +123,12 @@ function createApp(backend) {
           request.authSession,
         ),
       );
+  });
+
+  app.post('/api/tenants/:tenantId/reset-password', async (request, response) => {
+    response
+      .status(200)
+      .json(await backend.resetTenantPassword(request.params.tenantId, request.authSession));
   });
 
   app.post('/api/tenancies/:tenancyId/activate', async (request, response) => {

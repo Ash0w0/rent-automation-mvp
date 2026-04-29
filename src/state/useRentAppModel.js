@@ -4,6 +4,7 @@ const { createSeedState } = require('../data/seed');
 const {
   addRoom,
   activateTenancy,
+  changePassword,
   closeTenancy,
   completeTenantProfile,
   createProperty,
@@ -11,17 +12,18 @@ const {
   generateInvoice,
   hydrateStoredTokens,
   inviteTenant,
+  login,
   logoutSession,
-  requestOtp,
+  resetTenantPassword,
   reviewMeterReading,
   reviewPayment,
   scheduleMoveOut,
+  setPassword,
   submitMeterReading,
   submitPayment,
   updateProperty,
   updateReminderStatus,
   updateSettlement,
-  verifyOtp,
 } = require('../lib/apiClient');
 
 const emptySession = {
@@ -38,6 +40,7 @@ function createInitialState() {
     isHydrating: true,
     isSyncing: false,
     backendError: null,
+    issuedCredential: null,
   };
 }
 
@@ -54,6 +57,7 @@ function buildNextState(serverState, currentState, options = {}) {
   return {
     ...serverState,
     session: preserveSession ? currentState.session : serverState.session || emptySession,
+    issuedCredential: serverState.issuedCredential || null,
     isHydrating: false,
     isSyncing: false,
     backendError: null,
@@ -63,56 +67,59 @@ function buildNextState(serverState, currentState, options = {}) {
 export function useRentAppModel() {
   const [state, setState] = useState(createInitialState);
 
-useEffect(() => {
-  let active = true;
+  useEffect(() => {
+    let active = true;
 
-  async function hydrateState() {
-    try {
-      // Restore auth (tokens or cookies)
-      await hydrateStoredTokens();
-
-      let serverState = null;
-
+    async function hydrateState() {
       try {
-        serverState = await fetchAppState();
-      } catch (error) {
-        const message = normalizeError(error);
+        await hydrateStoredTokens();
 
-        // Ignore auth errors silently (user not logged in)
-        if (!/authentication required|session|token/i.test(message)) {
-          throw error;
+        let serverState = null;
+
+        try {
+          serverState = await fetchAppState();
+        } catch (error) {
+          const message = normalizeError(error);
+
+          if (!/authentication required|session|token/i.test(message)) {
+            throw error;
+          }
         }
+
+        if (!active) {
+          return;
+        }
+
+        setState((currentState) =>
+          serverState
+            ? buildNextState(serverState, currentState)
+            : {
+                ...currentState,
+                isHydrating: false,
+                isSyncing: false,
+                backendError: null,
+              },
+        );
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setState((currentState) => ({
+          ...currentState,
+          isHydrating: false,
+          isSyncing: false,
+          backendError: normalizeError(error),
+        }));
       }
-
-      if (!active) return;
-      setState((currentState) =>
-        serverState
-          ? buildNextState(serverState, currentState)
-          : {
-              ...currentState,
-              isHydrating: false,
-              isSyncing: false,
-              backendError: null,
-            }
-      );
-    } catch (error) {
-      if (!active) return;
-
-      setState((currentState) => ({
-        ...currentState,
-        isHydrating: false,
-        isSyncing: false,
-        backendError: normalizeError(error),
-      }));
     }
-  }
 
-  hydrateState();
+    hydrateState();
 
-  return () => {
-    active = false;
-  };
-}, []);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function runServerAction(task, options = {}) {
     setState((currentState) => ({
@@ -139,37 +146,19 @@ useEffect(() => {
   }
 
   const actions = {
-    requestOtp(role, phone) {
-      setState((currentState) => ({
-        ...currentState,
-        isSyncing: true,
-        backendError: null,
-      }));
-
-      return requestOtp(role, phone)
-        .then((payload) => {
-          setState((currentState) => ({
-            ...currentState,
-            isSyncing: false,
-            backendError: null,
-          }));
-          return payload;
-        })
-        .catch((error) => {
-          setState((currentState) => ({
-            ...currentState,
-            isHydrating: false,
-            isSyncing: false,
-            backendError: normalizeError(error),
-          }));
-          throw error;
-        });
+    login(role, phone, password) {
+      return runServerAction(() => login(role, phone, password));
     },
 
-    login(role, phone, code) {
-      return runServerAction(async () => {
-        await verifyOtp(role, phone, code);   // auth only
-        return await fetchAppState();         // full state 👈 REQUIRED
+    setPassword(password) {
+      return runServerAction(() => setPassword(password), {
+        preserveSession: true,
+      });
+    },
+
+    changePassword(currentPassword, nextPassword) {
+      return runServerAction(() => changePassword(currentPassword, nextPassword), {
+        preserveSession: true,
       });
     },
 
@@ -179,6 +168,7 @@ useEffect(() => {
       setState((currentState) => ({
         ...currentState,
         session: emptySession,
+        issuedCredential: null,
         isSyncing: false,
         backendError: null,
       }));
@@ -218,6 +208,12 @@ useEffect(() => {
       const { tenantId, ...payload } = input;
 
       return runServerAction(() => completeTenantProfile(tenantId, payload), {
+        preserveSession: true,
+      });
+    },
+
+    resetTenantPassword(tenantId) {
+      return runServerAction(() => resetTenantPassword(tenantId), {
         preserveSession: true,
       });
     },

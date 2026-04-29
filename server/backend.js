@@ -23,9 +23,19 @@ const {
   verifyToken,
 } = require('./auth');
 const { buildPhoneCandidates, normalizePhoneNumber, tryNormalizePhoneNumber } = require('./phoneUtils');
+const {
+  findAuthCredential,
+  issueTemporaryCredential,
+  recordFailedLoginAttempt,
+  setPermanentCredentialPassword,
+} = require('./credentialService');
+const {
+  isCredentialLocked,
+  isTemporaryCodeActive,
+  verifySecret,
+} = require('./passwordAuth');
 const { seedDatabase } = require('./seed');
 const { createSheetsPrismaClient } = require('./sheetsPrisma');
-const { checkPhoneVerification, startPhoneVerification } = require('./twilioVerify');
 const { readStoredUploadAsDataUrl, saveImageUpload } = require('./uploads');
 
 const emptySession = {
@@ -34,14 +44,6 @@ const emptySession = {
   currentTenantId: null,
   currentOwnerId: null,
 };
-
-const OTP_REQUEST_WINDOW_MS = 10 * 60 * 1000;
-const OTP_VERIFY_WINDOW_MS = 10 * 60 * 1000;
-const OTP_REQUEST_COOLDOWN_MS = 45 * 1000;
-const OTP_REQUEST_MAX_ATTEMPTS = 5;
-const OTP_VERIFY_MAX_ATTEMPTS = 10;
-const otpRequestTracker = new Map();
-const otpVerifyTracker = new Map();
 
 function toSession(role, phone, state, identity = {}) {
   const normalizedPhone = normalizePhoneNumber(phone);
@@ -81,33 +83,6 @@ function requireRecord(record, message) {
   }
 
   return record;
-}
-
-function buildOtpRateKey(role, phone, ipAddress = 'unknown') {
-  const safePhone = String(phone || '').replace(/\D+/g, '') || 'unknown';
-  return `${role || 'unknown'}:${safePhone}:${ipAddress}`;
-}
-
-function takeRateLimitedSlot(tracker, key, { windowMs, maxAttempts, cooldownMs = 0 }) {
-  const now = Date.now();
-  const existing = tracker.get(key) || {
-    attempts: [],
-    lastAttemptAt: 0,
-  };
-
-  existing.attempts = existing.attempts.filter((timestamp) => now - timestamp < windowMs);
-
-  if (cooldownMs > 0 && existing.lastAttemptAt && now - existing.lastAttemptAt < cooldownMs) {
-    throw new Error('Please wait before requesting another code.');
-  }
-
-  if (existing.attempts.length >= maxAttempts) {
-    throw new Error('Too many attempts. Please try again later.');
-  }
-
-  existing.attempts.push(now);
-  existing.lastAttemptAt = now;
-  tracker.set(key, existing);
 }
 
 async function applyInlineUploadAccess(records, key) {
@@ -282,7 +257,7 @@ function requirePaymentSubmissionAccess(session, submission, invoice) {
 }
 
 function isClientError(error) {
-  return /not found|required|unable|only|missing|already|must|invalid|choose|use owner|schedule/i.test(
+  return /not found|required|unable|only|missing|already|must|invalid|choose|use owner|schedule|password|credential|too many/i.test(
     error.message,
   );
 }
@@ -341,6 +316,73 @@ async function findAuthIdentity(prisma, role, phone) {
   }
 
   throw new Error('This phone number is not registered yet.');
+}
+
+function buildSessionPayload(session, credential = null) {
+  return session.role === 'owner'
+    ? {
+        role: 'owner',
+        phone: session.phone,
+        currentTenantId: null,
+        currentOwnerId: session.ownerId || null,
+        mustChangePassword: Boolean(credential?.mustChangePassword),
+      }
+    : {
+        role: 'tenant',
+        phone: session.phone,
+        currentTenantId: session.tenantId || null,
+        currentOwnerId: null,
+        mustChangePassword: Boolean(credential?.mustChangePassword),
+      };
+}
+
+function buildIdentityFromSession(session) {
+  return {
+    role: session.role,
+    phone: session.phone,
+    ownerId: session.currentOwnerId || session.ownerId || null,
+    tenantId: session.currentTenantId || session.tenantId || null,
+  };
+}
+
+async function getCredentialForSession(prisma, session) {
+  return findAuthCredential(prisma, buildIdentityFromSession(session));
+}
+
+async function createAuthenticatedSession(prisma, identity, credential, now = new Date()) {
+  const session = createSessionRecord({
+    id: makeId('session'),
+    role: identity.role,
+    phone: identity.phone,
+    ownerId: identity.ownerId,
+    tenantId: identity.tenantId,
+    now,
+  });
+  const tokens = buildSessionTokens(session);
+
+  await prisma.authSession.create({
+    data: {
+      ...session,
+      refreshTokenHash: hashToken(tokens.refreshToken),
+    },
+  });
+
+  return {
+    tokens,
+    sessionPayload: buildSessionPayload(session, credential),
+  };
+}
+
+function buildIssuedCredentialPayload({ role, phone, ownerId = null, tenantId = null, name = '', temporaryCode, expiresAt }) {
+  return {
+    role,
+    phone,
+    ownerId,
+    tenantId,
+    name,
+    temporaryPassword: temporaryCode,
+    expiresAt,
+  };
 }
 
 async function updateInvoiceStatuses(prisma, referenceDate) {
@@ -652,23 +694,118 @@ function createRentBackend(options = {}) {
           throw new Error('Your session has expired. Please log in again.');
         }
 
-        return payload.role === 'owner'
-          ? {
-              role: 'owner',
-              phone: payload.phone,
-              currentTenantId: null,
-              currentOwnerId: payload.ownerId || session.ownerId || null,
-            }
-          : {
-              role: 'tenant',
-              phone: payload.phone,
-              currentTenantId: payload.tenantId || session.tenantId || null,
-              currentOwnerId: null,
-            };
+        const sessionIdentity = {
+          role: payload.role,
+          phone: payload.phone,
+          ownerId: payload.ownerId || session.ownerId || null,
+          tenantId: payload.tenantId || session.tenantId || null,
+        };
+        const credential = await findAuthCredential(prisma, sessionIdentity);
+
+        return buildSessionPayload(sessionIdentity, credential);
+      });
+    },
+
+    async login({ role, phone, password }) {
+      return run(async () => {
+        let identity;
+        let credential;
+
+        try {
+          identity = await findAuthIdentity(prisma, role, phone);
+          credential = await findAuthCredential(prisma, identity);
+        } catch (_error) {
+          throw new Error('Invalid phone or password.');
+        }
+
+        if (!credential) {
+          throw new Error('Invalid phone or password.');
+        }
+
+        const now = new Date();
+        if (isCredentialLocked(credential, now)) {
+          throw new Error('Too many failed attempts. Try again later.');
+        }
+
+        const permanentPasswordMatches = await verifySecret(password, credential.passwordHash);
+        const temporaryPasswordMatches =
+          !permanentPasswordMatches &&
+          isTemporaryCodeActive(credential, now) &&
+          (await verifySecret(password, credential.temporaryCodeHash));
+
+        if (!permanentPasswordMatches && !temporaryPasswordMatches) {
+          await recordFailedLoginAttempt(prisma, credential, now);
+          throw new Error('Invalid phone or password.');
+        }
+
+        const refreshedCredential = await prisma.authCredential.update({
+          where: { id: credential.id },
+          data: {
+            failedAttempts: 0,
+            lockedUntil: null,
+            mustChangePassword: Boolean(credential.mustChangePassword || temporaryPasswordMatches),
+            updatedAt: toIso(now),
+          },
+        });
+
+        const { tokens, sessionPayload } = await createAuthenticatedSession(
+          prisma,
+          identity,
+          refreshedCredential,
+          now,
+        );
+
+        return {
+          tokens,
+          state: await getState(prisma, sessionPayload),
+        };
+      });
+    },
+
+    async setPassword({ password }, session) {
+      return run(async () => {
+        const resolvedSession = requireAuthenticatedSession(session);
+        const credential = requireRecord(
+          await getCredentialForSession(prisma, resolvedSession),
+          'Credential not found.',
+        );
+        const updatedCredential = await setPermanentCredentialPassword(
+          prisma,
+          credential,
+          password,
+          new Date(),
+        );
+
+        return getState(prisma, buildSessionPayload(buildIdentityFromSession(resolvedSession), updatedCredential));
+      });
+    },
+
+    async changePassword({ currentPassword, nextPassword }, session) {
+      return run(async () => {
+        const resolvedSession = requireAuthenticatedSession(session);
+        const credential = requireRecord(
+          await getCredentialForSession(prisma, resolvedSession),
+          'Credential not found.',
+        );
+        const passwordMatches = await verifySecret(currentPassword, credential.passwordHash);
+
+        if (!passwordMatches) {
+          throw new Error('Current password is incorrect.');
+        }
+
+        const updatedCredential = await setPermanentCredentialPassword(
+          prisma,
+          credential,
+          nextPassword,
+          new Date(),
+        );
+
+        return getState(prisma, buildSessionPayload(buildIdentityFromSession(resolvedSession), updatedCredential));
       });
     },
 
     async requestOtp({ role, phone }, requestMeta = {}) {
+      throw new Error('OTP login has been removed. Use phone and password login.');
       return run(async () => {
         const rateKey = buildOtpRateKey(role, phone, requestMeta.ipAddress);
         const maskedPhone = String(phone || '').replace(/\D+/g, '').slice(-4);
@@ -716,6 +853,7 @@ function createRentBackend(options = {}) {
       });
     },
 async verifyOtp({ role, phone, code }, requestMeta = {}) {
+  throw new Error('OTP login has been removed. Use phone and password login.');
   return run(async () => {
     const rateKey = buildOtpRateKey(role, phone, requestMeta.ipAddress);
 
@@ -829,11 +967,17 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           },
         });
 
-        const state = await getState(prisma);
+        const identity = {
+          role: payload.role,
+          phone: payload.phone,
+          ownerId: payload.ownerId || session.ownerId || null,
+          tenantId: payload.tenantId || session.tenantId || null,
+        };
+        const credential = await findAuthCredential(prisma, identity);
 
         return {
           tokens,
-          state: await getState(prisma, toSession(payload.role, payload.phone, state, payload)),
+          state: await getState(prisma, buildSessionPayload(identity, credential)),
         };
       });
     },
@@ -1106,6 +1250,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           fullName: input.fullName,
           phone: normalizedInvitePhone,
         });
+        let issuedCredential = null;
 
         await prisma.$transaction(async (tx) => {
           await tx.tenant.create({
@@ -1124,10 +1269,27 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
             data: { status: ROOM_STATUS.NOTICE },
           });
 
+          const temporaryCredential = await issueTemporaryCredential(tx, {
+            role: 'tenant',
+            phone: normalizedInvitePhone,
+            tenantId: tenant.id,
+          });
+          issuedCredential = buildIssuedCredentialPayload({
+            role: 'tenant',
+            phone: normalizedInvitePhone,
+            tenantId: tenant.id,
+            name: tenant.fullName,
+            temporaryCode: temporaryCredential.temporaryCode,
+            expiresAt: temporaryCredential.expiresAt,
+          });
+
           await recordAudit(tx, 'Tenant invited', `${input.fullName} was invited to room ${room.label}.`);
         });
 
-        return getState(prisma, session);
+        return {
+          ...(await getState(prisma, session)),
+          issuedCredential,
+        };
       });
     },
 
@@ -1155,6 +1317,46 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
         await recordAudit(prisma, 'Tenant profile updated', `Profile details were saved for ${nextTenant.fullName}.`);
         return getState(prisma, session);
+      });
+    },
+
+    async resetTenantPassword(tenantId, session) {
+      return run(async () => {
+        requireOwnerSession(session);
+        const property = await requireOwnerProperty(prisma, session);
+        const tenant = requireRecord(
+          await prisma.tenant.findUnique({ where: { id: tenantId } }),
+          'Tenant not found.',
+        );
+        requireRecord(
+          await prisma.tenancy.findFirst({
+            where: {
+              propertyId: property.id,
+              tenantId: tenant.id,
+            },
+          }),
+          'Tenant does not belong to this property.',
+        );
+        const temporaryCredential = await issueTemporaryCredential(prisma, {
+          role: 'tenant',
+          phone: tenant.phone,
+          tenantId: tenant.id,
+        });
+        const issuedCredential = buildIssuedCredentialPayload({
+          role: 'tenant',
+          phone: tenant.phone,
+          tenantId: tenant.id,
+          name: tenant.fullName,
+          temporaryCode: temporaryCredential.temporaryCode,
+          expiresAt: temporaryCredential.expiresAt,
+        });
+
+        await recordAudit(prisma, 'Tenant password reset', `Temporary password generated for ${tenant.fullName}.`);
+
+        return {
+          ...(await getState(prisma, session)),
+          issuedCredential,
+        };
       });
     },
 

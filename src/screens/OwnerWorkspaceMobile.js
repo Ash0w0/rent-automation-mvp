@@ -47,6 +47,7 @@ const rentModes = [
 const profileModes = [
   { label: 'Property', value: 'property' },
   { label: 'Payouts', value: 'collection' },
+  { label: 'Password', value: 'password' },
 ];
 
 const roomStatusThemes = {
@@ -365,6 +366,11 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     contractEnd: '2027-03-31',
   });
   const [moveOutForm, setMoveOutForm] = useState({ tenancyId: '', moveOutDate: state.referenceDate });
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    nextPassword: '',
+    confirmPassword: '',
+  });
 
   const getTenant = (tenantId) => state.tenants.find((tenant) => tenant.id === tenantId);
   const getRoom = (roomId) => state.rooms.find((room) => room.id === roomId);
@@ -828,6 +834,18 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     }
   };
 
+  const handlePasswordChange = () => {
+    if (passwordForm.nextPassword !== passwordForm.confirmPassword) {
+      setFeedback({ tone: 'danger', text: 'Passwords do not match.' });
+      return;
+    }
+
+    handleAction(async () => {
+      await actions.changePassword(passwordForm.currentPassword, passwordForm.nextPassword);
+      setPasswordForm({ currentPassword: '', nextPassword: '', confirmPassword: '' });
+    }, 'Password changed.');
+  };
+
   const chooseContractImage = async () => {
     try {
       setFeedback(null);
@@ -886,6 +904,19 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                 <KeyValueRow label="Resident" value={tenant ? tenant.fullName : 'Available'} />
                 <KeyValueRow label="Floor" value={room.floor} />
                 <KeyValueRow label="Meter" value={`${meter?.serialNumber || '-'} | ${meter?.lastReading ?? '-'}`} />
+                {tenant ? (
+                  <PrimaryButton
+                    label="Reset tenant password"
+                    tone="secondary"
+                    compact
+                    onPress={() =>
+                      handleAction(
+                        () => actions.resetTenantPassword(tenant.id),
+                        'Temporary password generated.',
+                      )
+                    }
+                  />
+                ) : null}
               </View>
             );
           })}
@@ -1133,6 +1164,32 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       );
     }
 
+    if (profileMode === 'password') {
+      return (
+        <>
+          <Field
+            label="Current password"
+            value={passwordForm.currentPassword}
+            onChangeText={(value) => setPasswordForm((current) => ({ ...current, currentPassword: value }))}
+            secureTextEntry
+          />
+          <Field
+            label="New password"
+            value={passwordForm.nextPassword}
+            onChangeText={(value) => setPasswordForm((current) => ({ ...current, nextPassword: value }))}
+            secureTextEntry
+          />
+          <Field
+            label="Confirm password"
+            value={passwordForm.confirmPassword}
+            onChangeText={(value) => setPasswordForm((current) => ({ ...current, confirmPassword: value }))}
+            secureTextEntry
+          />
+          <PrimaryButton label="Change password" onPress={handlePasswordChange} />
+        </>
+      );
+    }
+
     return (
       <EmptyState
         title="Room setup is in Rooms"
@@ -1160,6 +1217,12 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     >
       {state.isSyncing ? <Banner tone="info" message="Updating..." /> : null}
       {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
+      {state.issuedCredential ? (
+        <Banner
+          tone="success"
+          message={`Temporary password for ${state.issuedCredential.name || state.issuedCredential.phone}: ${state.issuedCredential.temporaryPassword}`}
+        />
+      ) : null}
 
       {activeTab === 'home' ? (
         <>

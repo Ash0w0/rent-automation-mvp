@@ -34,6 +34,7 @@ const tenantTabs = [
 const profileModes = [
   { label: 'Personal details', value: 'details' },
   { label: 'Agreement', value: 'agreement' },
+  { label: 'Password', value: 'password' },
 ];
 
 function formatInvoiceStateLabel(status) {
@@ -144,6 +145,11 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     notes: tenant?.notes || '',
   });
   const [paymentForm, setPaymentForm] = useState({ utr: '', note: '', proofUpload: null });
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    nextPassword: '',
+    confirmPassword: '',
+  });
   const [meterForm, setMeterForm] = useState({
     closingReading: roomMeter?.lastReading ? String(roomMeter.lastReading) : '',
     photoUpload: null,
@@ -178,6 +184,18 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     } catch (error) {
       setFeedback({ tone: 'danger', text: error.message });
     }
+  };
+
+  const handlePasswordChange = () => {
+    if (passwordForm.nextPassword !== passwordForm.confirmPassword) {
+      setFeedback({ tone: 'danger', text: 'Passwords do not match.' });
+      return;
+    }
+
+    handleAction(async () => {
+      await actions.changePassword(passwordForm.currentPassword, passwordForm.nextPassword);
+      setPasswordForm({ currentPassword: '', nextPassword: '', confirmPassword: '' });
+    }, 'Password changed.');
   };
 
   const chooseMeterPhoto = async () => {
@@ -601,6 +619,28 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                 <Field label="ID number" value={profileForm.idDocument} onChangeText={(value) => setProfileForm((current) => ({ ...current, idDocument: value }))} />
                 <Field label="Notes" value={profileForm.notes} onChangeText={(value) => setProfileForm((current) => ({ ...current, notes: value }))} multiline />
                 <PrimaryButton label="Save details" onPress={() => handleAction(() => actions.completeTenantProfile({ tenantId: tenant.id, ...profileForm }), 'Details saved.')} />
+              </>
+            ) : profileMode === 'password' ? (
+              <>
+                <Field
+                  label="Current password"
+                  value={passwordForm.currentPassword}
+                  onChangeText={(value) => setPasswordForm((current) => ({ ...current, currentPassword: value }))}
+                  secureTextEntry
+                />
+                <Field
+                  label="New password"
+                  value={passwordForm.nextPassword}
+                  onChangeText={(value) => setPasswordForm((current) => ({ ...current, nextPassword: value }))}
+                  secureTextEntry
+                />
+                <Field
+                  label="Confirm password"
+                  value={passwordForm.confirmPassword}
+                  onChangeText={(value) => setPasswordForm((current) => ({ ...current, confirmPassword: value }))}
+                  secureTextEntry
+                />
+                <PrimaryButton label="Change password" onPress={handlePasswordChange} />
               </>
             ) : contract ? (
               <>

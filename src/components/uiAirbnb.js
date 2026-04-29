@@ -309,7 +309,7 @@ export function KeyValueRow({ label, value }) {
   );
 }
 
-export function Field({ label, value, onChangeText, placeholder, keyboardType, multiline = false }) {
+export function Field({ label, value, onChangeText, placeholder, keyboardType, multiline = false, secureTextEntry = false }) {
   const [isFocused, setIsFocused] = useState(false);
 
   return (
@@ -322,6 +322,7 @@ export function Field({ label, value, onChangeText, placeholder, keyboardType, m
         placeholderTextColor={palette.mutedSoft}
         keyboardType={keyboardType}
         multiline={multiline}
+        secureTextEntry={secureTextEntry}
         selectionColor={palette.accent}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}

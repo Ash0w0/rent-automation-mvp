@@ -80,6 +80,7 @@ function getModelConfig(modelName) {
 
   return {
     ...config,
+    booleanFields: new Set(config.booleanFields || []),
     jsonFields: new Set(config.jsonFields || []),
     nullableFields: new Set(config.nullableFields || []),
     numberFields: new Set(config.numberFields || []),
@@ -108,6 +109,14 @@ function deserializeValue(config, field, value) {
     return Number(rawValue);
   }
 
+  if (config.booleanFields.has(field)) {
+    if (rawValue === '') {
+      return false;
+    }
+
+    return ['true', '1', 'yes'].includes(String(rawValue).trim().toLowerCase());
+  }
+
   return String(rawValue);
 }
 
@@ -118,6 +127,10 @@ function serializeValue(config, field, value) {
 
   if (config.jsonFields.has(field)) {
     return JSON.stringify(value);
+  }
+
+  if (config.booleanFields.has(field)) {
+    return value ? 'true' : 'false';
   }
 
   return value;

@@ -2,7 +2,7 @@ import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView, StyleSheet, View, Text } from 'react-native';
 
-import { AuthScreen } from './src/screens/AuthScreen';
+import { AuthScreen, PasswordSetupScreen } from './src/screens/AuthScreen';
 import { Banner, palette } from './src/components/uiAirbnb';
 import { OwnerWorkspaceMobile } from './src/screens/OwnerWorkspaceMobile';
 import { TenantWorkspaceMobile } from './src/screens/TenantWorkspaceMobile';
@@ -60,7 +60,12 @@ export default function App() {
           {!state.session.role ? (
             <AuthScreen
               onLogin={actions.login}
-              onRequestOtp={actions.requestOtp}
+              isBusy={state.isSyncing}
+              backendError={state.backendError}
+            />
+          ) : state.session.mustChangePassword ? (
+            <PasswordSetupScreen
+              onSetPassword={actions.setPassword}
               isBusy={state.isSyncing}
               backendError={state.backendError}
             />
