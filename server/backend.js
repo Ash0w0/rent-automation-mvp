@@ -22,9 +22,9 @@ const {
   toIso,
   verifyToken,
 } = require('./auth');
-const { createPrismaClient } = require('./prisma');
 const { buildPhoneCandidates, normalizePhoneNumber, tryNormalizePhoneNumber } = require('./phoneUtils');
 const { seedDatabase } = require('./seed');
+const { createSheetsPrismaClient } = require('./sheetsPrisma');
 const { checkPhoneVerification, startPhoneVerification } = require('./twilioVerify');
 const { readStoredUploadAsDataUrl, saveImageUpload } = require('./uploads');
 
@@ -110,20 +110,24 @@ function takeRateLimitedSlot(tracker, key, { windowMs, maxAttempts, cooldownMs =
   tracker.set(key, existing);
 }
 
-function applyInlineUploadAccess(records, key) {
-  return records.map((record) => ({
-    ...record,
-    [key]: readStoredUploadAsDataUrl(record[key]),
-  }));
+async function applyInlineUploadAccess(records, key) {
+  return Promise.all(
+    records.map(async (record) => ({
+      ...record,
+      [key]: await readStoredUploadAsDataUrl(record[key]),
+    })),
+  );
 }
 
-function applyInlineContractImages(contracts) {
-  return contracts.map((contract) => ({
-    ...contract,
-    imageLabels: Array.isArray(contract.imageLabels)
-      ? contract.imageLabels.map((label) => readStoredUploadAsDataUrl(label))
-      : contract.imageLabels,
-  }));
+async function applyInlineContractImages(contracts) {
+  return Promise.all(
+    contracts.map(async (contract) => ({
+      ...contract,
+      imageLabels: Array.isArray(contract.imageLabels)
+        ? await Promise.all(contract.imageLabels.map((label) => readStoredUploadAsDataUrl(label)))
+        : contract.imageLabels,
+    })),
+  );
 }
 
 function requireAuthenticatedSession(session) {
@@ -489,10 +493,10 @@ async function getState(prisma, session = null) {
       roomMeters,
       tenants: tenant ? [tenant] : [],
       tenancies,
-      contracts: applyInlineContractImages(contracts),
+      contracts: await applyInlineContractImages(contracts),
       invoices,
-      meterReadings: applyInlineUploadAccess(meterReadings, 'photoLabel'),
-      paymentSubmissions: applyInlineUploadAccess(paymentSubmissions, 'screenshotLabel'),
+      meterReadings: await applyInlineUploadAccess(meterReadings, 'photoLabel'),
+      paymentSubmissions: await applyInlineUploadAccess(paymentSubmissions, 'screenshotLabel'),
       reminders,
       auditTrail: [],
     };
@@ -595,17 +599,17 @@ async function getState(prisma, session = null) {
     roomMeters,
     tenants,
     tenancies,
-    contracts: applyInlineContractImages(contracts),
+    contracts: await applyInlineContractImages(contracts),
     invoices,
-    meterReadings: applyInlineUploadAccess(meterReadings, 'photoLabel'),
-    paymentSubmissions: applyInlineUploadAccess(paymentSubmissions, 'screenshotLabel'),
+    meterReadings: await applyInlineUploadAccess(meterReadings, 'photoLabel'),
+    paymentSubmissions: await applyInlineUploadAccess(paymentSubmissions, 'screenshotLabel'),
     reminders,
     auditTrail: [],
   };
 }
 
 function createRentBackend(options = {}) {
-  const prisma = options.prisma || createPrismaClient();
+  const prisma = options.prisma || options.store || createSheetsPrismaClient();
   const readyPromise = options.skipSeed ? Promise.resolve() : seedDatabase(prisma);
 
   async function run(task) {
@@ -1190,8 +1194,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('At least one agreement image is required before move-in.');
         }
 
-        const imageLabels = contractInput.contractUploads.map((upload, index) =>
-          saveImageUpload(`agreement-${index + 1}`, upload),
+        const imageLabels = await Promise.all(
+          contractInput.contractUploads.map((upload, index) =>
+            saveImageUpload(`agreement-${index + 1}`, upload),
+          ),
         );
 
         const { contract, tenancyPatch } = buildContractRecord({
@@ -1398,7 +1404,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('This month already has a meter reading on record.');
         }
 
-        const uploadedMeterPhoto = saveImageUpload('meter', input.photoUpload);
+        const uploadedMeterPhoto = await saveImageUpload('meter', input.photoUpload);
         const bundle = createInvoiceForTenancy({
           tenancy,
           room: resolvedRoom,
@@ -1588,7 +1594,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
         }
 
         const submissionId = makeId('submission');
-        const uploadedPaymentProof = saveImageUpload('payment-proof', input.proofUpload);
+        const uploadedPaymentProof = await saveImageUpload('payment-proof', input.proofUpload);
 
         await prisma.$transaction(async (tx) => {
           await tx.paymentSubmission.create({

@@ -9,14 +9,11 @@
     "server": "node server/index.js",
     "web": "expo start --web",
     "test": "node --test",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:seed": "prisma db seed",
-    "db:studio": "prisma studio"
+    "sheets:init": "node scripts/sheets.js init",
+    "sheets:seed": "node scripts/sheets.js seed",
+    "sheets:validate": "node scripts/sheets.js validate"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.7.0",
-    "@prisma/client": "^7.7.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "expo": "~54.0.33",
@@ -24,8 +21,8 @@
     "expo-secure-store": "~15.0.7",
     "expo-status-bar": "~3.0.9",
     "express": "^5.2.1",
+    "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.20.0",
     "qrcode": "^1.5.4",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -34,11 +31,5 @@
     "twilio": "^5.10.4",
     "typescript": "~5.9.2"
   },
-  "private": true,
-  "prisma": {
-    "seed": "node prisma/seed.js"
-  },
-  "devDependencies": {
-    "prisma": "^7.7.0"
-  }
+  "private": true
 }
