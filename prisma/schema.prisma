@@ -61,13 +61,29 @@ enum ReminderDeliveryStatus {
 }
 
 model Owner {
-  id         String     @id
-  name       String
-  phone      String     @unique
-  properties Property[]
-  authSessions AuthSession[]
+  id                    String        @id
+  name                  String
+  phone                 String        @unique
+  passwordHash          String?
+  mustChangePassword    Boolean       @default(false)
+  invitedAt             String?
+  invitedBySuperAdminId String?
+  properties            Property[]
+  authSessions          AuthSession[]
 
   @@map("owners")
+}
+
+model SuperAdmin {
+  id                 String        @id
+  phone              String        @unique
+  name               String
+  passwordHash       String
+  mustChangePassword Boolean       @default(false)
+  createdAt          String
+  authSessions       AuthSession[]
+
+  @@map("super_admins")
 }
 
 model Property {
@@ -133,30 +149,35 @@ model RoomMeter {
 }
 
 model Tenant {
-  id                String              @id
-  phone             String              @unique
-  fullName          String
-  email             String
-  emergencyContact  String
-  idDocument        String
-  notes             String
-  profileStatus     String
-  tenancies         Tenancy[]
-  invoices          Invoice[]
-  meterReadings     MeterReading[]
+  id                 String              @id
+  phone              String              @unique
+  fullName           String
+  email              String
+  emergencyContact   String
+  idDocument         String
+  notes              String
+  profileStatus      String
+  passwordHash       String?
+  mustChangePassword Boolean             @default(false)
+  invitedAt          String?
+  invitedByOwnerId   String?
+  tenancies          Tenancy[]
+  invoices           Invoice[]
+  meterReadings      MeterReading[]
   paymentSubmissions PaymentSubmission[]
-  reminders         Reminder[]
-  authSessions      AuthSession[]
+  reminders          Reminder[]
+  authSessions       AuthSession[]
 
   @@map("tenants")
 }
 
 model AuthSession {
-  id                String   @id
+  id                String      @id
   role              String
   phone             String
   ownerId           String?
   tenantId          String?
+  superAdminId      String?
   refreshTokenHash  String
   sessionExpiresAt  String
   refreshExpiresAt  String
@@ -164,8 +185,9 @@ model AuthSession {
   updatedAt         String
   lastUsedAt        String
   revokedAt         String?
-  owner             Owner?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  tenant            Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner             Owner?      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tenant            Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  superAdmin        SuperAdmin? @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
 
   @@index([phone, role])
   @@index([sessionExpiresAt])

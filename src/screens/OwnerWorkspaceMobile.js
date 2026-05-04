@@ -19,6 +19,7 @@ import {
   palette,
 } from '../components/uiAirbnb';
 import { pickImageUpload } from '../lib/imageUploads';
+import { TempPasswordShareModal } from '../components/TempPasswordShareModal';
 
 const { compareIsoDates, formatCurrency, formatDate, formatMonth, parseIsoDate } = require('../lib/dateUtils');
 const { resolveUploadUrl } = require('../lib/apiClient');
@@ -354,6 +355,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   });
   const [roomForm, setRoomForm] = useState({ label: '', floor: '', serialNumber: '', openingReading: '0' });
   const [inviteForm, setInviteForm] = useState({ fullName: '', phone: '', roomId: '' });
+  const [shareDetails, setShareDetails] = useState(null);
   const [contractForm, setContractForm] = useState({
     tenancyId: '',
     contractUploads: [],
@@ -886,6 +888,24 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                 <KeyValueRow label="Resident" value={tenant ? tenant.fullName : 'Available'} />
                 <KeyValueRow label="Floor" value={room.floor} />
                 <KeyValueRow label="Meter" value={`${meter?.serialNumber || '-'} | ${meter?.lastReading ?? '-'}`} />
+                {tenant ? (
+                  <PrimaryButton
+                    label="Reset password"
+                    tone="secondary"
+                    compact
+                    onPress={() => handleAction(async () => {
+                      const result = await actions.resetTenantPassword(tenant.id);
+                      if (result?.tempPassword) {
+                        setShareDetails({
+                          tempPassword: result.tempPassword,
+                          recipientName: result.tenant?.fullName || tenant.fullName,
+                          recipientPhone: result.tenant?.phone || tenant.phone,
+                          role: 'tenant',
+                        });
+                      }
+                    }, 'Password reset.')}
+                  />
+                ) : null}
               </View>
             );
           })}
@@ -901,10 +921,18 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
           <ChoiceChips value={inviteForm.roomId} onChange={(value) => setInviteForm((current) => ({ ...current, roomId: value }))} options={vacantRooms.map((room) => ({ value: room.id, label: `Room ${room.label}`, meta: `Floor ${room.floor}` }))} />
           <View style={styles.fullWidthAction}>
             <PrimaryButton label="Assign room" onPress={() => handleAction(async () => {
-              await actions.inviteTenant(inviteForm);
+              const result = await actions.inviteTenant(inviteForm);
+              if (result?.tempPassword) {
+                setShareDetails({
+                  tempPassword: result.tempPassword,
+                  recipientName: result.invitedTenant?.fullName || inviteForm.fullName,
+                  recipientPhone: result.invitedTenant?.phone || inviteForm.phone,
+                  role: 'tenant',
+                });
+              }
               setInviteForm({ fullName: '', phone: '', roomId: '' });
               setResidentMode('activate');
-            }, 'Room assigned.')} />
+            }, 'Tenant invited.')} />
           </View>
         </View>
       ) : (
@@ -1313,6 +1341,15 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         </View>
       </View>
     ) : null}
+    <TempPasswordShareModal
+      visible={Boolean(shareDetails)}
+      onDismiss={() => setShareDetails(null)}
+      tempPassword={shareDetails?.tempPassword}
+      recipientName={shareDetails?.recipientName}
+      recipientPhone={shareDetails?.recipientPhone}
+      role={shareDetails?.role}
+      inviterName={state.owner?.name || 'Owner'}
+    />
     </View>
   );
 }

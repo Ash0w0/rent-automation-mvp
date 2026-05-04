@@ -139,6 +139,59 @@ async function verifyOtp(role, phone, code) {
   return payload.state;
 }
 
+async function loginWithPassword(role, phone, password) {
+  const payload = await requestJson('/api/auth/login', {
+    method: 'POST',
+    body: { role, phone, password },
+    auth: false,
+  });
+
+  await setAuthTokens(payload.tokens);
+  return { state: payload.state, mustChangePassword: Boolean(payload.mustChangePassword) };
+}
+
+function forgotPasswordRequestOtp(role, phone) {
+  return requestJson('/api/auth/forgot-password/request-otp', {
+    method: 'POST',
+    body: { role, phone },
+    auth: false,
+  });
+}
+
+function forgotPasswordReset(role, phone, code, newPassword) {
+  return requestJson('/api/auth/forgot-password/reset', {
+    method: 'POST',
+    body: { role, phone, code, newPassword },
+    auth: false,
+  });
+}
+
+function changePassword(currentPassword, newPassword) {
+  return requestJson('/api/auth/change-password', {
+    method: 'POST',
+    body: { currentPassword, newPassword },
+  });
+}
+
+function inviteOwner(payload) {
+  return requestJson('/api/super-admin/owners/invite', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+function superAdminResetOwnerPassword(ownerId) {
+  return requestJson(`/api/super-admin/owners/${ownerId}/reset-password`, {
+    method: 'POST',
+  });
+}
+
+function ownerResetTenantPassword(tenantId) {
+  return requestJson(`/api/tenants/${tenantId}/reset-password`, {
+    method: 'POST',
+  });
+}
+
 async function refreshSession() {
   if (!authTokens.refreshToken) {
     return false;
@@ -280,16 +333,22 @@ function closeTenancy(tenancyId) {
 module.exports = {
   addRoom,
   activateTenancy,
+  changePassword,
   closeTenancy,
   clearAuthTokens,
   completeTenantProfile,
   createProperty,
   fetchAppState,
+  forgotPasswordRequestOtp,
+  forgotPasswordReset,
   generateInvoice,
   getApiBaseUrl,
   hydrateStoredTokens,
+  inviteOwner,
   inviteTenant,
+  loginWithPassword,
   logoutSession,
+  ownerResetTenantPassword,
   refreshSession,
   resolveUploadUrl,
   requestOtp,
@@ -298,6 +357,7 @@ module.exports = {
   scheduleMoveOut,
   submitMeterReading,
   submitPayment,
+  superAdminResetOwnerPassword,
   updateProperty,
   updateReminderStatus,
   updateSettlement,

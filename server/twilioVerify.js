@@ -1,6 +1,45 @@
 const twilio = require('twilio');
 const { normalizePhoneNumber } = require('./phoneUtils');
 
+const DEFAULT_DAILY_CAP = 50;
+const dailyCounter = { dateKey: null, count: 0 };
+
+function dailyCapKey(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+
+function getDailyCap() {
+  const raw = Number(process.env.TWILIO_DAILY_SMS_CAP);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_DAILY_CAP;
+}
+
+function checkAndIncrementDailyCap() {
+  const today = dailyCapKey();
+  if (dailyCounter.dateKey !== today) {
+    dailyCounter.dateKey = today;
+    dailyCounter.count = 0;
+  }
+
+  const cap = getDailyCap();
+  if (dailyCounter.count >= cap) {
+    const error = new Error('Daily verification cap reached. Try again tomorrow.');
+    error.code = 'TWILIO_DAILY_CAP_EXCEEDED';
+    throw error;
+  }
+
+  dailyCounter.count += 1;
+  return { used: dailyCounter.count, cap };
+}
+
+function getDailyCounterSnapshot() {
+  return { ...dailyCounter, cap: getDailyCap() };
+}
+
+function resetDailyCounterForTests() {
+  dailyCounter.dateKey = null;
+  dailyCounter.count = 0;
+}
+
 function maskPhone(phone) {
   const digits = String(phone || '').replace(/\D+/g, '');
   if (!digits) {
@@ -54,6 +93,9 @@ async function startPhoneVerification(phone) {
   if (!isTwilioConfigured()) {
     throw new Error('Twilio Verify is not configured on the server yet.');
   }
+
+  const capState = checkAndIncrementDailyCap();
+  console.log('[twilio] daily cap state', capState);
 
   const client = createTwilioClient();
   const normalizedPhone = normalizePhoneNumber(phone);
@@ -132,7 +174,9 @@ async function checkPhoneVerification(phone, code) {
 
 module.exports = {
   checkPhoneVerification,
+  getDailyCounterSnapshot,
   isTwilioConfigured,
   normalizePhoneNumber,
+  resetDailyCounterForTests,
   startPhoneVerification,
 };

@@ -26,6 +26,7 @@ const { createPrismaClient } = require('./prisma');
 const { buildPhoneCandidates, normalizePhoneNumber, tryNormalizePhoneNumber } = require('./phoneUtils');
 const { seedDatabase } = require('./seed');
 const { checkPhoneVerification, startPhoneVerification } = require('./twilioVerify');
+const { generateTempPassword, hashPassword, verifyPassword } = require('./password');
 const { readStoredUploadAsDataUrl, saveImageUpload } = require('./uploads');
 
 const emptySession = {
@@ -33,6 +34,7 @@ const emptySession = {
   phone: '',
   currentTenantId: null,
   currentOwnerId: null,
+  currentSuperAdminId: null,
 };
 
 const OTP_REQUEST_WINDOW_MS = 10 * 60 * 1000;
@@ -45,6 +47,21 @@ const otpVerifyTracker = new Map();
 
 function toSession(role, phone, state, identity = {}) {
   const normalizedPhone = normalizePhoneNumber(phone);
+  if (role === 'super_admin') {
+    const superAdminId = identity.superAdminId || null;
+    if (!superAdminId) {
+      throw new Error('Unable to map super admin session for this phone number.');
+    }
+
+    return {
+      role: 'super_admin',
+      phone: normalizedPhone,
+      currentTenantId: null,
+      currentOwnerId: null,
+      currentSuperAdminId: superAdminId,
+    };
+  }
+
   if (role === 'owner') {
     const ownerId = identity.ownerId || state.owner?.id;
     if (!ownerId) {
@@ -56,6 +73,7 @@ function toSession(role, phone, state, identity = {}) {
       phone: normalizedPhone,
       currentTenantId: null,
       currentOwnerId: ownerId,
+      currentSuperAdminId: null,
     };
   }
 
@@ -72,6 +90,7 @@ function toSession(role, phone, state, identity = {}) {
     phone: normalizedPhone,
     currentTenantId: tenant.id,
     currentOwnerId: null,
+    currentSuperAdminId: null,
   };
 }
 
@@ -139,6 +158,16 @@ function requireOwnerSession(session) {
 
   if (resolvedSession.role !== 'owner') {
     throw new Error('Only the owner can perform this action.');
+  }
+
+  return resolvedSession;
+}
+
+function requireSuperAdminSession(session) {
+  const resolvedSession = requireAuthenticatedSession(session);
+
+  if (resolvedSession.role !== 'super_admin') {
+    throw new Error('Only the super admin can perform this action.');
   }
 
   return resolvedSession;
@@ -278,7 +307,7 @@ function requirePaymentSubmissionAccess(session, submission, invoice) {
 }
 
 function isClientError(error) {
-  return /not found|required|unable|only|missing|already|must|invalid|choose|use owner|schedule/i.test(
+  return /not found|required|unable|only|missing|already|must|invalid|choose|use owner|schedule|incorrect|ask your owner|password|cap reached|not set up|not part of/i.test(
     error.message,
   );
 }
@@ -287,6 +316,9 @@ async function findAuthIdentity(prisma, role, phone) {
   const normalizedPhone = normalizePhoneNumber(phone);
   const phoneCandidates = buildPhoneCandidates(normalizedPhone);
 
+  const superAdmin = await prisma.superAdmin.findFirst({
+    where: { phone: { in: phoneCandidates } },
+  });
   const owner = await prisma.owner.findFirst({
     where: { phone: { in: phoneCandidates } },
   });
@@ -294,46 +326,65 @@ async function findAuthIdentity(prisma, role, phone) {
     where: { phone: { in: phoneCandidates } },
   });
 
-  if (role === 'owner') {
-    if (owner) {
-      return {
+  if (role === 'super_admin') {
+    if (!superAdmin) {
+      throw new Error('This phone number is not registered yet.');
+    }
+
+    return {
+      role: 'super_admin',
+      phone: normalizePhoneNumber(superAdmin.phone),
+      ownerId: null,
+      tenantId: null,
+      superAdminId: superAdmin.id,
+      passwordHash: superAdmin.passwordHash,
+      mustChangePassword: superAdmin.mustChangePassword,
+    };
+  }
+
+  const ownerIdentity = owner
+    ? {
         role: 'owner',
         phone: normalizePhoneNumber(owner.phone),
         ownerId: owner.id,
         tenantId: null,
-      };
-    }
-
-    // Be forgiving when the user selected the wrong role in UI.
-    if (tenant) {
-      return {
+        superAdminId: null,
+        passwordHash: owner.passwordHash || null,
+        mustChangePassword: Boolean(owner.mustChangePassword),
+      }
+    : null;
+  const tenantIdentity = tenant
+    ? {
         role: 'tenant',
         phone: normalizePhoneNumber(tenant.phone),
         ownerId: null,
         tenantId: tenant.id,
-      };
+        superAdminId: null,
+        passwordHash: tenant.passwordHash || null,
+        mustChangePassword: Boolean(tenant.mustChangePassword),
+      }
+    : null;
+
+  if (role === 'owner') {
+    if (ownerIdentity) {
+      return ownerIdentity;
+    }
+
+    // Be forgiving when the user selected the wrong role in UI.
+    if (tenantIdentity) {
+      return tenantIdentity;
     }
 
     throw new Error('This phone number is not registered yet.');
   }
 
-  if (tenant) {
-    return {
-      role: 'tenant',
-      phone: normalizePhoneNumber(tenant.phone),
-      ownerId: null,
-      tenantId: tenant.id,
-    };
+  if (tenantIdentity) {
+    return tenantIdentity;
   }
 
   // Be forgiving when the user selected the wrong role in UI.
-  if (owner) {
-    return {
-      role: 'owner',
-      phone: normalizePhoneNumber(owner.phone),
-      ownerId: owner.id,
-      tenantId: null,
-    };
+  if (ownerIdentity) {
+    return ownerIdentity;
   }
 
   throw new Error('This phone number is not registered yet.');
@@ -381,8 +432,41 @@ async function recordAudit(prisma, title, detail, referenceDate = getTodayIso())
 
 async function getState(prisma, session = null) {
   const referenceDate = getTodayIso();
-  await updateInvoiceStatuses(prisma, referenceDate);
   const resolvedSession = session || emptySession;
+
+  if (resolvedSession.role === 'super_admin') {
+    const owners = await prisma.owner.findMany({
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        mustChangePassword: true,
+        invitedAt: true,
+      },
+    });
+
+    return {
+      referenceDate,
+      session: resolvedSession,
+      owner: null,
+      property: null,
+      settlementAccount: null,
+      rooms: [],
+      roomMeters: [],
+      tenants: [],
+      tenancies: [],
+      contracts: [],
+      invoices: [],
+      meterReadings: [],
+      paymentSubmissions: [],
+      reminders: [],
+      auditTrail: [],
+      owners,
+    };
+  }
+
+  await updateInvoiceStatuses(prisma, referenceDate);
 
   if (resolvedSession.role === 'tenant') {
     const currentTenantId = resolvedSession.currentTenantId;
@@ -648,18 +732,30 @@ function createRentBackend(options = {}) {
           throw new Error('Your session has expired. Please log in again.');
         }
 
+        if (payload.role === 'super_admin') {
+          return {
+            role: 'super_admin',
+            phone: payload.phone,
+            currentTenantId: null,
+            currentOwnerId: null,
+            currentSuperAdminId: payload.superAdminId || session.superAdminId || null,
+          };
+        }
+
         return payload.role === 'owner'
           ? {
               role: 'owner',
               phone: payload.phone,
               currentTenantId: null,
               currentOwnerId: payload.ownerId || session.ownerId || null,
+              currentSuperAdminId: null,
             }
           : {
               role: 'tenant',
               phone: payload.phone,
               currentTenantId: payload.tenantId || session.tenantId || null,
               currentOwnerId: null,
+              currentSuperAdminId: null,
             };
       });
     },
@@ -739,19 +835,18 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     const now = new Date();
 
-    // ✅ Create proper session (single source of truth)
     const session = createSessionRecord({
       id: makeId('session'),
       role: identity.role,
       phone: identity.phone,
       ownerId: identity.ownerId,
       tenantId: identity.tenantId,
+      superAdminId: identity.superAdminId || null,
       now,
     });
 
     const tokens = buildSessionTokens(session);
 
-    // ✅ Persist session
     await prisma.authSession.create({
       data: {
         ...session,
@@ -759,15 +854,14 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
       },
     });
 
-    // ✅ Build session payload for state (IMPORTANT FIX)
     const sessionPayload = {
       role: session.role,
       phone: session.phone,
       currentOwnerId: session.ownerId,
       currentTenantId: session.tenantId,
+      currentSuperAdminId: session.superAdminId || null,
     };
 
-    // ✅ Fetch state USING session (this was broken before)
     const state = await getState(prisma, sessionPayload);
 
     return {
@@ -776,6 +870,338 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
     };
   });
 },
+
+    async loginWithPassword({ role, phone, password }, requestMeta = {}) {
+      return run(async () => {
+        if (!role || !phone || !password) {
+          throw new Error('Role, phone, and password are required.');
+        }
+
+        const rateKey = buildOtpRateKey(`pwd:${role}`, phone, requestMeta.ipAddress);
+        takeRateLimitedSlot(otpVerifyTracker, rateKey, {
+          windowMs: OTP_VERIFY_WINDOW_MS,
+          maxAttempts: OTP_VERIFY_MAX_ATTEMPTS,
+        });
+
+        const identity = await findAuthIdentity(prisma, role, phone);
+
+        if (!identity.passwordHash) {
+          throw new Error('Password login is not yet set up for this account.');
+        }
+
+        const ok = await verifyPassword(password, identity.passwordHash);
+        if (!ok) {
+          throw new Error('Incorrect phone or password.');
+        }
+
+        const now = new Date();
+        const session = createSessionRecord({
+          id: makeId('session'),
+          role: identity.role,
+          phone: identity.phone,
+          ownerId: identity.ownerId,
+          tenantId: identity.tenantId,
+          superAdminId: identity.superAdminId || null,
+          now,
+        });
+
+        const tokens = buildSessionTokens(session);
+
+        await prisma.authSession.create({
+          data: {
+            ...session,
+            refreshTokenHash: hashToken(tokens.refreshToken),
+          },
+        });
+
+        const sessionPayload = {
+          role: session.role,
+          phone: session.phone,
+          currentOwnerId: session.ownerId,
+          currentTenantId: session.tenantId,
+          currentSuperAdminId: session.superAdminId || null,
+        };
+
+        const state = await getState(prisma, sessionPayload);
+
+        return {
+          tokens,
+          state,
+          mustChangePassword: Boolean(identity.mustChangePassword),
+        };
+      });
+    },
+
+    async changePassword({ currentPassword, newPassword }, session) {
+      return run(async () => {
+        const resolvedSession = requireAuthenticatedSession(session);
+        if (!currentPassword || !newPassword) {
+          throw new Error('Current and new password are required.');
+        }
+
+        const role = resolvedSession.role;
+        const identity = await findAuthIdentity(prisma, role, resolvedSession.phone);
+
+        if (!identity.passwordHash) {
+          throw new Error('No password is set on this account yet.');
+        }
+
+        const ok = await verifyPassword(currentPassword, identity.passwordHash);
+        if (!ok) {
+          throw new Error('Current password is incorrect.');
+        }
+
+        const newHash = await hashPassword(newPassword);
+
+        if (role === 'super_admin') {
+          await prisma.superAdmin.update({
+            where: { id: identity.superAdminId },
+            data: { passwordHash: newHash, mustChangePassword: false },
+          });
+        } else if (role === 'owner') {
+          await prisma.owner.update({
+            where: { id: identity.ownerId },
+            data: { passwordHash: newHash, mustChangePassword: false },
+          });
+        } else if (role === 'tenant') {
+          await prisma.tenant.update({
+            where: { id: identity.tenantId },
+            data: { passwordHash: newHash, mustChangePassword: false },
+          });
+        } else {
+          throw new Error('Unsupported role.');
+        }
+
+        // Revoke all other sessions for this identity
+        await prisma.authSession.updateMany({
+          where: {
+            role,
+            phone: identity.phone,
+            revokedAt: null,
+          },
+          data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+        });
+
+        return { ok: true };
+      });
+    },
+
+    async requestPasswordReset({ role, phone }, requestMeta = {}) {
+      return run(async () => {
+        if (role === 'tenant') {
+          throw new Error('Ask your owner to reset your password.');
+        }
+
+        if (role !== 'owner' && role !== 'super_admin') {
+          throw new Error('Invalid role for password reset.');
+        }
+
+        const rateKey = buildOtpRateKey(`reset:${role}`, phone, requestMeta.ipAddress);
+        takeRateLimitedSlot(otpRequestTracker, rateKey, {
+          windowMs: OTP_REQUEST_WINDOW_MS,
+          maxAttempts: OTP_REQUEST_MAX_ATTEMPTS,
+          cooldownMs: OTP_REQUEST_COOLDOWN_MS,
+        });
+
+        try {
+          await findAuthIdentity(prisma, role, phone);
+          await startPhoneVerification(phone);
+        } catch (_error) {
+          // Swallow to avoid leaking which numbers exist; cap errors do bubble.
+          if (_error?.code === 'TWILIO_DAILY_CAP_EXCEEDED') {
+            throw _error;
+          }
+        }
+
+        return { ok: true, status: 'pending' };
+      });
+    },
+
+    async resetPassword({ role, phone, code, newPassword }, requestMeta = {}) {
+      return run(async () => {
+        if (role === 'tenant') {
+          throw new Error('Ask your owner to reset your password.');
+        }
+        if (role !== 'owner' && role !== 'super_admin') {
+          throw new Error('Invalid role for password reset.');
+        }
+        if (!code || !newPassword) {
+          throw new Error('OTP code and new password are required.');
+        }
+
+        const rateKey = buildOtpRateKey(`reset:${role}`, phone, requestMeta.ipAddress);
+        takeRateLimitedSlot(otpVerifyTracker, rateKey, {
+          windowMs: OTP_VERIFY_WINDOW_MS,
+          maxAttempts: OTP_VERIFY_MAX_ATTEMPTS,
+        });
+
+        const identity = await findAuthIdentity(prisma, role, phone);
+
+        let verification;
+        try {
+          verification = await checkPhoneVerification(phone, code);
+        } catch (_error) {
+          throw new Error('The OTP is invalid or has expired.');
+        }
+        if (verification.status !== 'approved') {
+          throw new Error('The OTP is invalid or has expired.');
+        }
+
+        const newHash = await hashPassword(newPassword);
+
+        if (role === 'super_admin') {
+          await prisma.superAdmin.update({
+            where: { id: identity.superAdminId },
+            data: { passwordHash: newHash, mustChangePassword: false },
+          });
+        } else {
+          await prisma.owner.update({
+            where: { id: identity.ownerId },
+            data: { passwordHash: newHash, mustChangePassword: false },
+          });
+        }
+
+        await prisma.authSession.updateMany({
+          where: { role, phone: identity.phone, revokedAt: null },
+          data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+        });
+
+        return { ok: true };
+      });
+    },
+
+    async inviteOwner(input, session) {
+      return run(async () => {
+        const adminSession = requireSuperAdminSession(session);
+        const name = cleanText(input?.name);
+        const rawPhone = cleanText(input?.phone);
+
+        if (!name || !rawPhone) {
+          throw new Error('Owner name and phone are required.');
+        }
+
+        const normalizedPhone = normalizePhoneNumber(rawPhone);
+        const tempPassword =
+          typeof input?.tempPassword === 'string' && input.tempPassword.trim().length >= 8
+            ? input.tempPassword.trim()
+            : generateTempPassword();
+        const passwordHash = await hashPassword(tempPassword);
+
+        const duplicate = await prisma.owner.findFirst({
+          where: { phone: { in: buildPhoneCandidates(normalizedPhone) } },
+          select: { id: true },
+        });
+        if (duplicate) {
+          throw new Error('That phone number is already registered as an owner.');
+        }
+
+        const owner = await prisma.$transaction(async (tx) => {
+          const created = await tx.owner.create({
+            data: {
+              id: makeId('owner'),
+              name,
+              phone: normalizedPhone,
+              passwordHash,
+              mustChangePassword: true,
+              invitedAt: toIso(new Date()),
+              invitedBySuperAdminId: adminSession.currentSuperAdminId,
+            },
+          });
+
+          await recordAudit(tx, 'Owner invited', `${name} was invited as an owner.`);
+          return created;
+        });
+
+        return {
+          owner: {
+            id: owner.id,
+            name: owner.name,
+            phone: owner.phone,
+            mustChangePassword: owner.mustChangePassword,
+            invitedAt: owner.invitedAt,
+          },
+          tempPassword,
+        };
+      });
+    },
+
+    async superAdminResetOwnerPassword({ ownerId }, session) {
+      return run(async () => {
+        requireSuperAdminSession(session);
+        if (!ownerId) {
+          throw new Error('Owner id is required.');
+        }
+
+        const owner = requireRecord(
+          await prisma.owner.findUnique({ where: { id: ownerId } }),
+          'Owner not found.',
+        );
+
+        const tempPassword = generateTempPassword();
+        const passwordHash = await hashPassword(tempPassword);
+
+        await prisma.$transaction(async (tx) => {
+          await tx.owner.update({
+            where: { id: owner.id },
+            data: { passwordHash, mustChangePassword: true },
+          });
+
+          await tx.authSession.updateMany({
+            where: { role: 'owner', phone: owner.phone, revokedAt: null },
+            data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+          });
+
+          await recordAudit(tx, 'Owner password reset', `Password was reset for ${owner.name}.`);
+        });
+
+        return { tempPassword, owner: { id: owner.id, name: owner.name, phone: owner.phone } };
+      });
+    },
+
+    async ownerResetTenantPassword({ tenantId }, session) {
+      return run(async () => {
+        requireOwnerSession(session);
+        const property = await requireOwnerProperty(prisma, session);
+        if (!tenantId) {
+          throw new Error('Tenant id is required.');
+        }
+
+        const tenant = requireRecord(
+          await prisma.tenant.findUnique({ where: { id: tenantId } }),
+          'Tenant not found.',
+        );
+
+        const tenancy = await prisma.tenancy.findFirst({
+          where: { tenantId: tenant.id, propertyId: property.id },
+          select: { id: true },
+        });
+        if (!tenancy) {
+          throw new Error('That tenant is not part of your property.');
+        }
+
+        const tempPassword = generateTempPassword();
+        const passwordHash = await hashPassword(tempPassword);
+
+        await prisma.$transaction(async (tx) => {
+          await tx.tenant.update({
+            where: { id: tenant.id },
+            data: { passwordHash, mustChangePassword: true },
+          });
+
+          await tx.authSession.updateMany({
+            where: { role: 'tenant', phone: tenant.phone, revokedAt: null },
+            data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+          });
+
+          await recordAudit(tx, 'Tenant password reset', `Password was reset for ${tenant.fullName}.`);
+        });
+
+        return {
+          tempPassword,
+          tenant: { id: tenant.id, fullName: tenant.fullName, phone: tenant.phone },
+        };
+      });
+    },
     async refreshAuth({ refreshToken }) {
       return run(async () => {
         const payload = verifyToken(refreshToken);
@@ -1103,9 +1529,22 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           phone: normalizedInvitePhone,
         });
 
+        const tempPassword =
+          typeof input.tempPassword === 'string' && input.tempPassword.trim().length >= 8
+            ? input.tempPassword.trim()
+            : generateTempPassword();
+        const passwordHash = await hashPassword(tempPassword);
+        const ownerRecord = await findOwnerForSession(prisma, session);
+
         await prisma.$transaction(async (tx) => {
           await tx.tenant.create({
-            data: tenant,
+            data: {
+              ...tenant,
+              passwordHash,
+              mustChangePassword: true,
+              invitedAt: toIso(new Date()),
+              invitedByOwnerId: ownerRecord ? ownerRecord.id : null,
+            },
           });
 
           await tx.tenancy.create({
@@ -1123,7 +1562,16 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           await recordAudit(tx, 'Tenant invited', `${input.fullName} was invited to room ${room.label}.`);
         });
 
-        return getState(prisma, session);
+        const state = await getState(prisma, session);
+        return {
+          tempPassword,
+          invitedTenant: {
+            id: tenant.id,
+            fullName: input.fullName,
+            phone: normalizedInvitePhone,
+          },
+          state,
+        };
       });
     },
 

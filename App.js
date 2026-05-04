@@ -4,7 +4,9 @@ import { SafeAreaView, StyleSheet, View, Text } from 'react-native';
 
 import { AuthScreen } from './src/screens/AuthScreen';
 import { Banner, palette } from './src/components/uiAirbnb';
+import { ChangePasswordScreen } from './src/screens/ChangePasswordScreen';
 import { OwnerWorkspaceMobile } from './src/screens/OwnerWorkspaceMobile';
+import { SuperAdminWorkspace } from './src/screens/SuperAdminWorkspace';
 import { TenantWorkspaceMobile } from './src/screens/TenantWorkspaceMobile';
 import { useRentAppModel } from './src/state/useRentAppModel';
 
@@ -60,10 +62,21 @@ export default function App() {
           {!state.session.role ? (
             <AuthScreen
               onLogin={actions.login}
-              onRequestOtp={actions.requestOtp}
+              onForgotPasswordRequestOtp={actions.forgotPasswordRequestOtp}
+              onForgotPasswordReset={actions.forgotPasswordReset}
               isBusy={state.isSyncing}
               backendError={state.backendError}
             />
+          ) : state.mustChangePassword ? (
+            <ChangePasswordScreen
+              onChangePassword={actions.changePassword}
+              isBusy={state.isSyncing}
+              backendError={state.backendError}
+              forced
+              onLogout={actions.logout}
+            />
+          ) : state.session.role === 'super_admin' ? (
+            <SuperAdminWorkspace state={state} actions={actions} onLogout={actions.logout} />
           ) : state.session.role === 'owner' ? (
             <OwnerWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
           ) : (
