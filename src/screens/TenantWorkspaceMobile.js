@@ -1,15 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Linking, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  Easing as RNEasing,
+  cancelAnimation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import {
   Banner,
   ChoiceChips,
   EmptyState,
   Field,
-  FocusCard,
-  InlineGroup,
   KeyValueRow,
-  MetricRow,
   PageHeader,
   PrimaryButton,
   QrCard,
@@ -17,6 +27,7 @@ import {
   SectionCard,
   StatusBadge,
   TabStrip,
+  elevation,
   palette,
 } from '../components/uiAirbnb';
 import { useToast } from '../components/ToastHost';
@@ -27,6 +38,7 @@ import {
   formatMeterStateLabel,
   formatSubmissionStateLabel,
 } from '../lib/statusLabels';
+import { spring as springTokens, haptic } from '../lib/motion';
 
 const { formatCurrency, formatDate, formatMonth } = require('../lib/dateUtils');
 const { resolveUploadUrl } = require('../lib/apiClient');
@@ -43,11 +55,232 @@ const profileModes = [
   { label: 'Agreement', value: 'agreement' },
 ];
 
-function UploadPreview({ title, subtitle, uri }) {
-  if (!uri) {
-    return null;
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// Animated number counter (counts up on mount / when value changes)
+// ─────────────────────────────────────────────────────────────────────────────
+function AnimatedAmount({ value, formatter = formatCurrency, style, prefix = '', suffix = '' }) {
+  const target = Number.isFinite(value) ? value : 0;
+  const progress = useSharedValue(0);
+  const [display, setDisplay] = useState(formatter(0));
 
+  useEffect(() => {
+    progress.value = 0;
+    progress.value = withTiming(target, {
+      duration: 900,
+      easing: RNEasing.out(RNEasing.cubic),
+    });
+  }, [target, progress]);
+
+  // Sync the rendered text with the animated value via runOnJS.
+  // useAnimatedReaction would be cleaner but this works fine for a single counter.
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      const v = progress.value;
+      setDisplay(formatter(Math.round(v)));
+      if (Math.abs(v - target) > 0.5) raf = requestAnimationFrame(tick);
+      else setDisplay(formatter(target));
+    };
+    tick();
+    return () => raf && cancelAnimationFrame(raf);
+  }, [target, formatter, progress]);
+
+  return (
+    <Text style={style}>
+      {prefix}{display}{suffix}
+    </Text>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Floating shape for hero parallax
+// ─────────────────────────────────────────────────────────────────────────────
+function FloatingShape({ style, delay = 0, distance = 8, duration = 4400 }) {
+  const offset = useSharedValue(0);
+  useEffect(() => {
+    offset.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing: RNEasing.inOut(RNEasing.quad) }),
+          withTiming(0, { duration, easing: RNEasing.inOut(RNEasing.quad) }),
+        ),
+        -1,
+        false,
+      ),
+    );
+    return () => cancelAnimation(offset);
+  }, [delay, duration, offset]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { rotate: '45deg' },
+      { translateY: interpolate(offset.value, [0, 1], [0, -distance]) },
+      { translateX: interpolate(offset.value, [0, 1], [0, distance / 2]) },
+    ],
+  }));
+  return <Animated.View style={[style, animatedStyle]} pointerEvents="none" />;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NextStepHero — premium gradient CTA card replacing FocusCard for "next step"
+// ─────────────────────────────────────────────────────────────────────────────
+function NextStepHero({ focus, onPress }) {
+  const scale = useSharedValue(1);
+  const ty = useSharedValue(20);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    opacity.value = withTiming(1, { duration: 360 });
+    ty.value = withSpring(0, springTokens.gentle);
+  }, [opacity, ty]);
+
+  const wrap = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: ty.value }, { scale: scale.value }],
+  }));
+
+  const isAccent = focus.tone === 'accent';
+  const isForest = focus.tone === 'forest';
+  const colors = isAccent
+    ? ['#00D6B5', '#00B399', '#008B7A']
+    : isForest
+      ? ['#2BC275', '#1FA463', '#147A47']
+      : ['#FFFFFF', '#F7F9FB'];
+  const isDark = isAccent || isForest;
+
+  return (
+    <Animated.View style={[wrap, styles.heroCardWrap]}>
+      <Pressable
+        onPress={() => {
+          haptic.light();
+          onPress?.();
+        }}
+        onPressIn={() => { scale.value = withSpring(0.985, springTokens.press); }}
+        onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
+        android_ripple={{
+          color: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,199,168,0.16)',
+          borderless: false,
+        }}
+        style={[styles.heroCard, !isDark && styles.heroCardLight]}
+      >
+        <LinearGradient
+          colors={colors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <FloatingShape style={[styles.heroCardShape, { left: -28, top: -16 }]} />
+        <FloatingShape style={[styles.heroCardShape, { right: -36, bottom: -28 }]} delay={500} duration={5400} />
+        <View style={styles.heroCardContent}>
+          <Text style={[styles.heroCardEyebrow, !isDark && styles.heroCardEyebrowLight]}>
+            Next step
+          </Text>
+          <Text style={[styles.heroCardTitle, !isDark && styles.heroCardTitleLight]}>
+            {focus.title}
+          </Text>
+          {focus.description ? (
+            <Text style={[styles.heroCardDesc, !isDark && styles.heroCardDescLight]}>
+              {focus.description}
+            </Text>
+          ) : null}
+          <View style={styles.heroCardCta}>
+            <Text style={[styles.heroCardCtaText, !isDark && styles.heroCardCtaTextLight]}>
+              Open  ›
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InvoiceHero — premium amount card for the rent tab
+// ─────────────────────────────────────────────────────────────────────────────
+function InvoiceHero({ invoice, onPay, isOverdue }) {
+  const opacity = useSharedValue(0);
+  const ty = useSharedValue(16);
+  useEffect(() => {
+    opacity.value = withTiming(1, { duration: 380 });
+    ty.value = withSpring(0, springTokens.gentle);
+  }, [opacity, ty, invoice?.id]);
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: ty.value }],
+  }));
+
+  const colors = isOverdue
+    ? ['#FF7A66', '#EB5757', '#C9402F']
+    : ['#00D6B5', '#00B399', '#008B7A'];
+
+  return (
+    <Animated.View style={[styles.invoiceHeroWrap, style]}>
+      <LinearGradient
+        colors={colors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <FloatingShape style={[styles.heroCardShape, { left: -20, top: -14 }]} />
+      <FloatingShape style={[styles.heroCardShape, { right: -30, bottom: -24 }]} delay={500} duration={5400} />
+      <View style={styles.invoiceHeroContent}>
+        <Text style={styles.invoiceHeroEyebrow}>{formatMonth(invoice.month)}</Text>
+        <AnimatedAmount value={invoice.totalAmount} style={styles.invoiceHeroAmount} />
+        <Text style={styles.invoiceHeroDue}>
+          {isOverdue ? 'Overdue · ' : 'Due '}
+          {formatDate(invoice.dueDate)}
+        </Text>
+        {onPay ? (
+          <Pressable
+            onPress={() => {
+              haptic.light();
+              onPay();
+            }}
+            android_ripple={{ color: 'rgba(0,0,0,0.08)', borderless: false }}
+            style={({ pressed }) => [styles.invoiceHeroCta, pressed && { opacity: 0.92 }]}
+          >
+            <Text style={styles.invoiceHeroCtaText}>Pay now  ›</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </Animated.View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Timeline event — dotted timeline for activity
+// ─────────────────────────────────────────────────────────────────────────────
+function TimelineEvent({ title, subtitle, status, last = false, delay = 0 }) {
+  const opacity = useSharedValue(0);
+  const tx = useSharedValue(-8);
+  useEffect(() => {
+    opacity.value = withDelay(delay, withTiming(1, { duration: 280 }));
+    tx.value = withDelay(delay, withSpring(0, springTokens.gentle));
+  }, [delay, opacity, tx]);
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateX: tx.value }],
+  }));
+
+  return (
+    <Animated.View style={[styles.timelineRow, style]}>
+      <View style={styles.timelineRail}>
+        <View style={styles.timelineDot} />
+        {!last ? <View style={styles.timelineLine} /> : null}
+      </View>
+      <View style={styles.timelineBody}>
+        <View style={styles.timelineHeader}>
+          <Text style={styles.timelineTitle} numberOfLines={2}>{title}</Text>
+          {status ? <StatusBadge label={status} /> : null}
+        </View>
+        {subtitle ? <Text style={styles.timelineSubtitle}>{subtitle}</Text> : null}
+      </View>
+    </Animated.View>
+  );
+}
+
+function UploadPreview({ title, subtitle, uri }) {
+  if (!uri) return null;
   return (
     <View style={styles.previewCard}>
       <Text style={styles.previewTitle}>{title}</Text>
@@ -57,6 +290,9 @@ function UploadPreview({ title, subtitle, uri }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────────────────────
 export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   const [activeTab, setActiveTab] = useState('home');
   const [profileMode, setProfileMode] = useState('details');
@@ -153,6 +389,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
       photoUpload: meterForm.photoUpload,
     });
     toast.show({ tone: 'success', message: 'Reading submitted.' });
+    haptic.success();
   });
 
   const submitPaymentAction = useAsyncAction(async () => {
@@ -164,11 +401,13 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     });
     setPaymentForm({ utr: '', note: '', proofUpload: null });
     toast.show({ tone: 'success', message: 'Proof submitted.' });
+    haptic.success();
   });
 
   const saveProfileAction = useAsyncAction(async () => {
     await actions.completeTenantProfile({ tenantId: tenant.id, ...profileForm });
     toast.show({ tone: 'success', message: 'Details saved.' });
+    haptic.success();
   });
 
   const refreshAction = useAsyncAction(() => actions.refresh());
@@ -176,9 +415,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   const chooseMeterPhoto = async () => {
     try {
       const upload = await pickImageUpload();
-      if (upload) {
-        setMeterForm((current) => ({ ...current, photoUpload: upload }));
-      }
+      if (upload) setMeterForm((current) => ({ ...current, photoUpload: upload }));
     } catch (error) {
       toast.show({ tone: 'danger', message: error.message });
     }
@@ -187,41 +424,22 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   const choosePaymentProof = async () => {
     try {
       const upload = await pickImageUpload();
-      if (upload) {
-        setPaymentForm((current) => ({ ...current, proofUpload: upload }));
-      }
+      if (upload) setPaymentForm((current) => ({ ...current, proofUpload: upload }));
     } catch (error) {
       toast.show({ tone: 'danger', message: error.message });
     }
   };
 
   const handleSubmitMeter = async () => {
-    try {
-      await submitMeterAction.run();
-    } catch (error) {
-      toast.show({ tone: 'danger', message: error.message });
-    }
+    try { await submitMeterAction.run(); } catch (error) { toast.show({ tone: 'danger', message: error.message }); }
   };
-
   const handleSubmitPayment = async () => {
-    try {
-      await submitPaymentAction.run();
-    } catch (error) {
-      toast.show({ tone: 'danger', message: error.message });
-    }
+    try { await submitPaymentAction.run(); } catch (error) { toast.show({ tone: 'danger', message: error.message }); }
   };
-
   const handleSaveProfile = async () => {
-    try {
-      await saveProfileAction.run();
-    } catch (error) {
-      toast.show({ tone: 'danger', message: error.message });
-    }
+    try { await saveProfileAction.run(); } catch (error) { toast.show({ tone: 'danger', message: error.message }); }
   };
-
-  const handleRefresh = () => {
-    refreshAction.run().catch(() => {});
-  };
+  const handleRefresh = () => { refreshAction.run().catch(() => {}); };
 
   if (!tenant) {
     return (
@@ -245,122 +463,102 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     paymentForm.proofUpload?.previewUri || resolveUploadUrl(activeSubmission?.screenshotLabel);
 
   const tenantFocus = !isProfileComplete
-    ? {
-        title: 'Finish your profile',
-        description: 'Complete details to continue.',
-        tab: 'stay',
-        tone: 'accent',
-      }
+    ? { title: 'Finish your profile', description: 'Complete your details to continue.', tab: 'stay', tone: 'accent' }
     : !contract
-      ? {
-          title: 'Agreement pending',
-          description: 'Waiting for agreement.',
-          tab: 'stay',
-          tone: 'soft',
-        }
+      ? { title: 'Agreement pending', description: 'Waiting for the agreement to be uploaded.', tab: 'stay', tone: 'soft' }
       : !activeInvoice
-        ? {
-            title: 'Submit this month’s reading',
-            description: 'Add the meter photo.',
-            tab: 'rent',
-            tone: 'accent',
-          }
+        ? { title: 'Submit this month’s reading', description: 'Add the latest meter photo.', tab: 'rent', tone: 'accent' }
         : ['DUE', 'OVERDUE'].includes(activeInvoice.derivedStatus)
           ? {
               title: `Pay ${formatCurrency(activeInvoice.totalAmount)}`,
-              description: 'Pay and upload proof.',
+              description: activeInvoice.derivedStatus === 'OVERDUE' ? 'Payment is overdue.' : 'Pay now and upload proof.',
               tab: 'rent',
               tone: activeInvoice.derivedStatus === 'OVERDUE' ? 'accent' : 'forest',
             }
           : activeInvoice.derivedStatus === 'PAYMENT_SUBMITTED'
-            ? {
-                title: 'Final approval pending',
-                description: 'Awaiting approval.',
-                tab: 'rent',
-                tone: 'soft',
-              }
-            : {
-                title: 'All clear',
-                description: '',
-                tab: 'home',
-                tone: 'forest',
-              };
+            ? { title: 'Final approval pending', description: 'Awaiting owner approval.', tab: 'rent', tone: 'soft' }
+            : { title: 'All clear', description: 'You’re up to date.', tab: 'home', tone: 'forest' };
 
   const heroCopy = {
     home: {
-      eyebrow: 'Tenant',
+      eyebrow: 'Welcome',
       title: tenant.fullName || 'Your stay',
-      subtitle: '',
+      subtitle: room ? `Room ${room.label}` : 'Room pending',
       highlights: [
-        room ? `Room ${room.label}` : 'Room pending',
         roomMeter ? `${roomMeter.lastReading} units` : 'Meter pending',
         currentDue,
       ],
     },
     rent: {
       eyebrow: 'Rent',
-      title: activeInvoice ? formatCurrency(activeInvoice.totalAmount) : 'Submit this month’s reading',
-      subtitle: '',
+      title: activeInvoice ? formatMonth(activeInvoice.month) : 'Submit reading',
+      subtitle: activeReading ? formatMeterStateLabel(activeReading.status) : 'Waiting for your reading',
       highlights: [
         roomMeter ? `Last approved ${roomMeter.lastReading}` : 'No meter',
-        activeReading ? formatMeterStateLabel(activeReading.status) : 'Waiting for your reading',
         activeInvoice ? formatInvoiceStateLabel(activeInvoice.derivedStatus) : formatMonth(currentMonth),
       ],
     },
     stay: {
       eyebrow: 'My stay',
-      title: 'Stay',
-      subtitle: '',
+      title: 'Profile & agreement',
+      subtitle: tenant.profileStatus === 'COMPLETE' ? 'Details complete' : 'Details pending',
       highlights: [
-        tenant.profileStatus === 'COMPLETE' ? 'Details complete' : 'Details pending',
         contract ? 'Agreement live' : 'Agreement pending',
         `${submissions.length} payment update${submissions.length === 1 ? '' : 's'}`,
       ],
     },
   }[activeTab];
 
+  // Activity events — flatten everything into a single timeline
+  const events = [];
+  if (activeReading) {
+    events.push({
+      key: `reading-${activeReading.id}`,
+      title: `Meter reading for ${formatMonth(activeReading.month)}`,
+      subtitle: `${activeReading.openingReading} → ${activeReading.closingReading}`,
+      status: formatMeterStateLabel(activeReading.status),
+    });
+  }
+  submissions.slice(0, 3).forEach((submission) => {
+    events.push({
+      key: submission.id,
+      title: 'Payment proof shared',
+      subtitle: submission.utr,
+      status: formatSubmissionStateLabel(submission.status),
+    });
+  });
+  reminders.slice(0, 3).forEach((reminder) => {
+    events.push({
+      key: reminder.id,
+      title: reminder.title,
+      subtitle: formatDate(reminder.triggerDate),
+      status: reminder.deliveryStatus,
+    });
+  });
+
   const renderActivityCard = () => (
     <SectionCard title="Updates">
-      {activeReading || reminders.length || submissions.length ? (
-        <View style={styles.stack}>
-          {activeReading ? (
-            <View key={`reading-${activeReading.id}`} style={styles.listCard}>
-              <InlineGroup>
-                <Text style={styles.listTitle}>Meter update for {formatMonth(activeReading.month)}</Text>
-                <StatusBadge label={formatMeterStateLabel(activeReading.status)} />
-              </InlineGroup>
-              <Text style={styles.listText}>
-                {activeReading.openingReading} to {activeReading.closingReading}
-              </Text>
-            </View>
-          ) : null}
-          {submissions.slice(0, 2).map((submission) => (
-            <View key={submission.id} style={styles.listCard}>
-              <InlineGroup>
-                <Text style={styles.listTitle}>Payment proof shared</Text>
-                <StatusBadge label={formatSubmissionStateLabel(submission.status)} />
-              </InlineGroup>
-              <Text style={styles.listText}>{submission.utr}</Text>
-            </View>
-          ))}
-          {reminders.slice(0, 2).map((reminder) => (
-            <View key={reminder.id} style={styles.listCard}>
-              <InlineGroup>
-                <Text style={styles.listTitle}>{reminder.title}</Text>
-                <StatusBadge label={reminder.deliveryStatus} />
-              </InlineGroup>
-              <Text style={styles.listText}>{formatDate(reminder.triggerDate)}</Text>
-            </View>
+      {events.length ? (
+        <View style={styles.timeline}>
+          {events.map((event, index) => (
+            <TimelineEvent
+              key={event.key}
+              title={event.title}
+              subtitle={event.subtitle}
+              status={event.status}
+              last={index === events.length - 1}
+              delay={index * 70}
+            />
           ))}
         </View>
       ) : (
-        <EmptyState
-          title="No updates yet"
-          description="Nothing yet."
-        />
+        <EmptyState title="No updates yet" description="Submissions and reminders will appear here." />
       )}
     </SectionCard>
   );
+
+  const isOverdue = activeInvoice?.derivedStatus === 'OVERDUE';
+  const showAllClearOnHome = tenantFocus.title === 'All clear';
 
   return (
     <ScreenSurface
@@ -379,37 +577,73 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
 
       {activeTab === 'home' ? (
         <>
-          <FocusCard
-            eyebrow="Next step"
-            title={tenantFocus.title}
-            description={tenantFocus.description}
-            tone={tenantFocus.tone}
-            actionLabel="Open"
-            onAction={() => setActiveTab(tenantFocus.tab)}
-          />
-          <SectionCard title="Stay overview" tone="soft">
-            <MetricRow
-              items={[
-                { label: 'Room', value: room ? room.label : 'Pending' },
-                { label: 'Current due', value: currentDue },
-                { label: 'Meter', value: roomMeter ? roomMeter.lastReading : 'Pending' },
-              ]}
-            />
+          {!showAllClearOnHome ? (
+            <NextStepHero focus={tenantFocus} onPress={() => setActiveTab(tenantFocus.tab)} />
+          ) : (
+            <SectionCard tone="accent">
+              <View style={styles.allClearWrap}>
+                <View style={styles.allClearBadge}>
+                  <Text style={styles.allClearBadgeText}>✓</Text>
+                </View>
+                <View style={styles.allClearText}>
+                  <Text style={styles.allClearTitle}>You’re all clear</Text>
+                  <Text style={styles.allClearSub}>Rent paid and approved. See you next month.</Text>
+                </View>
+              </View>
+            </SectionCard>
+          )}
+
+          <SectionCard title="Stay overview" subtitle="At a glance">
+            <View style={styles.statRow}>
+              <View style={[styles.statTile, styles.statTileFirst]}>
+                <Text style={styles.statLabel}>Room</Text>
+                <Text style={styles.statValue}>{room ? room.label : '—'}</Text>
+              </View>
+              <View style={styles.statTile}>
+                <Text style={styles.statLabel}>Current due</Text>
+                {activeInvoice && ['DUE', 'OVERDUE', 'PAYMENT_SUBMITTED'].includes(activeInvoice.derivedStatus) ? (
+                  <AnimatedAmount value={activeInvoice.totalAmount} style={styles.statValue} />
+                ) : (
+                  <Text style={styles.statValue}>—</Text>
+                )}
+              </View>
+              <View style={styles.statTile}>
+                <Text style={styles.statLabel}>Meter</Text>
+                <Text style={styles.statValue}>{roomMeter ? roomMeter.lastReading : '—'}</Text>
+              </View>
+            </View>
+            <View style={styles.divider} />
             <KeyValueRow label="Agreement" value={contract ? 'Active' : 'Pending'} />
             <KeyValueRow
               label="This month"
               value={activeInvoice ? formatInvoiceStateLabel(activeInvoice.derivedStatus) : 'Reading not submitted'}
             />
           </SectionCard>
+
           {renderActivityCard()}
         </>
       ) : null}
 
       {activeTab === 'rent' ? (
         <>
-          <SectionCard title="This month">
-            {tenancy ? (
-              <>
+          {tenancy ? (
+            <>
+              {activeInvoice && ['DUE', 'OVERDUE', 'PAYMENT_SUBMITTED', 'PAID'].includes(activeInvoice.derivedStatus) ? (
+                <InvoiceHero
+                  invoice={activeInvoice}
+                  isOverdue={isOverdue}
+                  onPay={
+                    ['DUE', 'OVERDUE'].includes(activeInvoice.derivedStatus)
+                      ? () =>
+                          Linking.openURL(activeInvoice.paymentLink).catch(() =>
+                            toast.show({ tone: 'danger', message: 'Could not open a UPI app.' }),
+                          )
+                      : null
+                  }
+                />
+              ) : null}
+
+              <SectionCard title="This month">
                 <KeyValueRow
                   label="Last approved reading"
                   value={roomMeter ? String(roomMeter.lastReading) : 'Pending'}
@@ -448,27 +682,25 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                   </View>
                 ) : (
                   <>
-                    <InlineGroup>
-                      <StatusBadge label={formatInvoiceStateLabel(activeInvoice.derivedStatus)} />
-                      <Text style={styles.listText}>
-                        {formatMonth(activeInvoice.month)} | due {formatDate(activeInvoice.dueDate)}
-                      </Text>
-                    </InlineGroup>
-                    <MetricRow
-                      items={[
-                        { label: 'Total due', value: formatCurrency(activeInvoice.totalAmount) },
-                        { label: 'Rent', value: formatCurrency(activeInvoice.baseRent) },
-                        {
-                          label: 'Electricity',
-                          value: formatCurrency(activeInvoice.electricityCharge),
-                        },
-                      ]}
-                    />
+                    <View style={styles.statRow}>
+                      <View style={[styles.statTile, styles.statTileFirst]}>
+                        <Text style={styles.statLabel}>Total due</Text>
+                        <AnimatedAmount value={activeInvoice.totalAmount} style={styles.statValue} />
+                      </View>
+                      <View style={styles.statTile}>
+                        <Text style={styles.statLabel}>Rent</Text>
+                        <AnimatedAmount value={activeInvoice.baseRent} style={styles.statValue} />
+                      </View>
+                      <View style={styles.statTile}>
+                        <Text style={styles.statLabel}>Electricity</Text>
+                        <AnimatedAmount value={activeInvoice.electricityCharge} style={styles.statValue} />
+                      </View>
+                    </View>
                     {activeReading ? (
                       <>
                         <KeyValueRow
                           label="Meter reading"
-                          value={`${activeReading.openingReading} to ${activeReading.closingReading}`}
+                          value={`${activeReading.openingReading} → ${activeReading.closingReading}`}
                         />
                         <KeyValueRow
                           label="Units used"
@@ -485,26 +717,11 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                     {['DUE', 'OVERDUE'].includes(activeInvoice.derivedStatus) ? (
                       <>
                         {activeSubmission?.status === 'REJECTED' ? (
-                          <Banner
-                            tone="danger"
-                            message="Previous proof was rejected. Upload a new one."
-                          />
+                          <Banner tone="danger" message="Previous proof was rejected. Upload a new one." />
                         ) : null}
                         <QrCard
                           value={activeInvoice.paymentLink}
-                          subtitle={`${settlementAccount.payeeName || 'Payee'} | ${settlementAccount.upiId || 'UPI'}`}
-                        />
-                        <PrimaryButton
-                          label="Open UPI app"
-                          tone="secondary"
-                          onPress={() =>
-                            Linking.openURL(activeInvoice.paymentLink).catch(() =>
-                              toast.show({
-                                tone: 'danger',
-                                message: 'We could not open a UPI app on this device.',
-                              }),
-                            )
-                          }
+                          subtitle={`${settlementAccount.payeeName || 'Payee'} • ${settlementAccount.upiId || 'UPI'}`}
                         />
                         <View style={styles.formStack}>
                           <Field
@@ -551,10 +768,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                           subtitle={activeSubmission?.screenshotLabel || 'Uploaded'}
                           uri={paymentProofUri}
                         />
-                        <EmptyState
-                          title="Final approval pending"
-                          description="Waiting for approval."
-                        />
+                        <EmptyState title="Final approval pending" description="Waiting for owner approval." />
                       </>
                     ) : null}
 
@@ -565,23 +779,19 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                           subtitle={activeSubmission?.screenshotLabel || 'Approved'}
                           uri={paymentProofUri}
                         />
-                        <EmptyState
-                          title="Payment confirmed"
-                          description="Paid and approved."
-                        />
+                        <EmptyState title="Payment confirmed" description="Paid and approved." />
                       </>
                     ) : null}
                   </>
                 )}
-              </>
-            ) : (
-              <EmptyState
-                title="Stay not active"
-                description="Finish onboarding first."
-              />
-            )}
-          </SectionCard>
-          {renderActivityCard()}
+              </SectionCard>
+              {renderActivityCard()}
+            </>
+          ) : (
+            <SectionCard>
+              <EmptyState title="Stay not active" description="Finish onboarding first." />
+            </SectionCard>
+          )}
         </>
       ) : null}
 
@@ -644,7 +854,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
             ) : contract ? (
               <>
                 <KeyValueRow label="Move-in date" value={formatDate(contract.moveInDate)} />
-                <KeyValueRow label="Agreement term" value={`${formatDate(contract.contractStart)} to ${formatDate(contract.contractEnd)}`} />
+                <KeyValueRow label="Agreement term" value={`${formatDate(contract.contractStart)} → ${formatDate(contract.contractEnd)}`} />
                 <KeyValueRow label="Monthly rent" value={formatCurrency(contract.rentAmount)} />
                 <KeyValueRow label="Deposit" value={formatCurrency(contract.depositAmount)} />
                 <KeyValueRow label="Monthly due date" value={`Day ${contract.dueDay} of each month`} />
@@ -661,7 +871,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                   </View>
                 ) : null}
               </>
-            ) : <EmptyState title="Agreement pending" description="Waiting for agreement." />}
+            ) : <EmptyState title="Agreement pending" description="Waiting for the agreement." />}
           </SectionCard>
         </>
       ) : null}
@@ -670,9 +880,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
 }
 
 const styles = StyleSheet.create({
-  stack: {
-    gap: 12,
-  },
+  stack: { gap: 12 },
   formStack: {
     gap: 12,
     padding: 16,
@@ -681,24 +889,171 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
-  listCard: {
-    padding: 16,
-    borderRadius: 22,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-    gap: 8,
+
+  // Hero "Next step" gradient card
+  heroCardWrap: { borderRadius: 30, overflow: 'hidden', ...elevation.e2 },
+  heroCard: {
+    minHeight: 168,
+    padding: 22,
+    borderRadius: 30,
+    overflow: 'hidden',
+    justifyContent: 'space-between',
   },
-  listTitle: {
+  heroCardLight: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border },
+  heroCardShape: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  heroCardContent: { gap: 6, position: 'relative' },
+  heroCardEyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.86)',
+  },
+  heroCardEyebrowLight: { color: palette.muted },
+  heroCardTitle: {
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: '800',
+    color: palette.white,
+    letterSpacing: -0.4,
+  },
+  heroCardTitleLight: { color: palette.ink },
+  heroCardDesc: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.86)',
+  },
+  heroCardDescLight: { color: palette.muted },
+  heroCardCta: {
+    marginTop: 14,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.20)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+  },
+  heroCardCtaText: {
+    color: palette.white,
+    fontWeight: '800',
+    fontSize: 13,
+    letterSpacing: 0.2,
+  },
+  heroCardCtaTextLight: { color: palette.accentDeep },
+
+  // Invoice hero
+  invoiceHeroWrap: {
+    minHeight: 200,
+    borderRadius: 32,
+    overflow: 'hidden',
+    padding: 24,
+    justifyContent: 'space-between',
+    ...elevation.e2,
+  },
+  invoiceHeroContent: { gap: 4 },
+  invoiceHeroEyebrow: {
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  invoiceHeroAmount: {
+    color: palette.white,
+    fontSize: 44,
+    lineHeight: 50,
+    fontWeight: '900',
+    letterSpacing: -1.2,
+    marginTop: 4,
+  },
+  invoiceHeroDue: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  invoiceHeroCta: {
+    alignSelf: 'flex-start',
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: palette.white,
+  },
+  invoiceHeroCtaText: { color: palette.ink, fontWeight: '800', fontSize: 14 },
+
+  // Stat tiles row
+  statRow: { flexDirection: 'row', gap: 1, borderRadius: 18, overflow: 'hidden' },
+  statTile: {
     flex: 1,
-    fontSize: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    backgroundColor: palette.surfaceMuted,
+    gap: 4,
+  },
+  statTileFirst: {},
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: palette.muted,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  statValue: {
+    fontSize: 18,
     fontWeight: '800',
     color: palette.ink,
+    letterSpacing: -0.2,
   },
-  listText: {
-    color: palette.inkSoft,
-    lineHeight: 21,
+  divider: { height: 1, backgroundColor: palette.border, marginVertical: 4 },
+
+  // All clear card
+  allClearWrap: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  allClearBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: palette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  allClearBadgeText: { color: palette.white, fontSize: 22, fontWeight: '900' },
+  allClearText: { flex: 1, gap: 2 },
+  allClearTitle: { fontSize: 18, fontWeight: '800', color: palette.ink, letterSpacing: -0.2 },
+  allClearSub: { fontSize: 13, color: palette.muted, lineHeight: 18 },
+
+  // Timeline
+  timeline: { gap: 0 },
+  timelineRow: { flexDirection: 'row', gap: 14, paddingVertical: 6 },
+  timelineRail: { width: 14, alignItems: 'center', paddingTop: 4 },
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: palette.accent,
+    borderWidth: 2,
+    borderColor: palette.surface,
+    ...elevation.e1,
+  },
+  timelineLine: {
+    flex: 1,
+    width: 2,
+    backgroundColor: palette.border,
+    marginTop: 4,
+  },
+  timelineBody: { flex: 1, paddingBottom: 14, gap: 4 },
+  timelineHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  timelineTitle: { flex: 1, fontSize: 14, fontWeight: '800', color: palette.ink },
+  timelineSubtitle: { fontSize: 13, color: palette.muted, lineHeight: 18 },
+
+  // Upload preview
   previewCard: {
     gap: 10,
     padding: 14,
@@ -707,18 +1062,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
-  previewTitle: {
-    color: palette.ink,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  previewSubtitle: {
-    color: palette.inkSoft,
-    lineHeight: 20,
-  },
+  previewTitle: { color: palette.ink, fontSize: 15, fontWeight: '800' },
+  previewSubtitle: { color: palette.inkSoft, lineHeight: 20 },
   previewImage: {
     width: '100%',
-    height: 190,
+    height: 200,
     borderRadius: 18,
     backgroundColor: palette.surfaceMuted,
   },
