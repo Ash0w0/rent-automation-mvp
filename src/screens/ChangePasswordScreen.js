@@ -168,7 +168,7 @@ export function ChangePasswordScreen({
 
       <View style={styles.hero}>
         <LinearGradient
-          colors={['#00D6B5', '#00B399', '#008B7A']}
+          colors={['#1A1A2E', '#0B0E13', '#05050A']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -263,7 +263,7 @@ export function ChangePasswordScreen({
           {onLogout ? (
             <Pressable
               onPress={onLogout}
-              android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: true }}
+              android_ripple={{ color: 'rgba(11,14,19,0.10)', borderless: true }}
               style={({ pressed }) => [styles.ghostLink, pressed && styles.ghostLinkPressed]}
             >
               <Text style={styles.ghostLinkText}>Log out instead</Text>

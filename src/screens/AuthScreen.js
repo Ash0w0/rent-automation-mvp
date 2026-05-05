@@ -235,7 +235,7 @@ export function AuthScreen({
       <StatusBar style="light" />
       <View style={styles.hero}>
         <LinearGradient
-          colors={['#00D6B5', '#00B399', '#008B7A']}
+          colors={['#1A1A2E', '#0B0E13', '#05050A']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -354,7 +354,7 @@ export function AuthScreen({
           {mode === MODES.LOGIN ? (
             <Pressable
               onPress={() => goToMode(MODES.FORGOT_REQUEST)}
-              android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: true }}
+              android_ripple={{ color: 'rgba(11,14,19,0.10)', borderless: true }}
               style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
             >
               <Text style={styles.footerText}>
@@ -364,7 +364,7 @@ export function AuthScreen({
           ) : (
             <Pressable
               onPress={() => goToMode(MODES.LOGIN)}
-              android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: true }}
+              android_ripple={{ color: 'rgba(11,14,19,0.10)', borderless: true }}
               style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
             >
               <Text style={styles.footerText}>
