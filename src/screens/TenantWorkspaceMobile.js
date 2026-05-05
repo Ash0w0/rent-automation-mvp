@@ -142,7 +142,7 @@ function NextStepHero({ focus, onPress }) {
   const isAccent = focus.tone === 'accent';
   const isForest = focus.tone === 'forest';
   const colors = isAccent
-    ? ['#00D6B5', '#00B399', '#008B7A']
+    ? ['#1A1A2E', '#0B0E13', '#05050A']
     : isForest
       ? ['#2BC275', '#1FA463', '#147A47']
       : ['#FFFFFF', '#F7F9FB'];
@@ -158,7 +158,7 @@ function NextStepHero({ focus, onPress }) {
         onPressIn={() => { scale.value = withSpring(0.985, springTokens.press); }}
         onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
         android_ripple={{
-          color: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,199,168,0.16)',
+          color: isDark ? 'rgba(255,255,255,0.16)' : 'rgba(11,14,19,0.08)',
           borderless: false,
         }}
         style={[styles.heroCard, !isDark && styles.heroCardLight]}
@@ -211,7 +211,7 @@ function InvoiceHero({ invoice, onPay, isOverdue }) {
 
   const colors = isOverdue
     ? ['#FF7A66', '#EB5757', '#C9402F']
-    : ['#00D6B5', '#00B399', '#008B7A'];
+    : ['#1A1A2E', '#0B0E13', '#05050A'];
 
   return (
     <Animated.View style={[styles.invoiceHeroWrap, style]}>

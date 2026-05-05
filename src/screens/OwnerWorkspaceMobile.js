@@ -193,7 +193,7 @@ function AnimatedStatTile({ label, value, accent = false, delay = 0, isCount = t
     <Animated.View style={[styles.statTile, accent && styles.statTileAccent, anim]}>
       {accent ? (
         <LinearGradient
-          colors={['#00C7A8', '#00A690']}
+          colors={['#1A1A2E', '#0B0E13']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -219,7 +219,7 @@ function AnimatedQueueItem({ item, index }) {
         onPressIn={() => { scale.value = withSpring(0.97, springTokens.press); }}
         onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
         onPress={() => { haptic.light(); item.onPress?.(); }}
-        android_ripple={{ color: 'rgba(0,199,168,0.12)', borderless: false }}
+        android_ripple={{ color: 'rgba(11,14,19,0.08)', borderless: false }}
         style={styles.queueItem}
       >
         <View style={styles.queueCopy}>
@@ -250,12 +250,12 @@ function AnimatedPipelineStep({ action, isActive, onPress }) {
         onPress={() => { haptic.light(); onPress?.(); }}
         onPressIn={() => { scale.value = withSpring(0.97, springTokens.press); }}
         onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
-        android_ripple={{ color: isActive ? 'rgba(0,199,168,0.18)' : 'rgba(0,0,0,0.07)', borderless: false }}
+        android_ripple={{ color: 'rgba(11,14,19,0.08)', borderless: false }}
         style={[styles.pipelineStep, isActive && styles.pipelineStepActive]}
       >
         {isActive ? (
           <LinearGradient
-            colors={['#E8FAF6', '#D6F7EF']}
+            colors={['#F0F0F5', '#E8E8EF']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={[StyleSheet.absoluteFill, { borderRadius: 18 }]}
@@ -328,7 +328,7 @@ function RentFocusHero({ title, description, actionLabel, onPress, isAllClear = 
   const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   const colors = isAllClear
-    ? ['#00C7A8', '#009E86']
+    ? ['#1A1A2E', '#0B0E13']
     : ['#1A1A2E', '#16213E'];
 
   return (
@@ -377,12 +377,12 @@ function ManagementActionCard({ action, isActive }) {
         onPress={() => { haptic.light(); action.onPress?.(); }}
         onPressIn={() => { scale.value = withSpring(0.97, springTokens.press); }}
         onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
-        android_ripple={{ color: 'rgba(0,199,168,0.12)', borderless: false }}
+        android_ripple={{ color: 'rgba(11,14,19,0.08)', borderless: false }}
         style={[styles.managementCard, isActive && styles.managementCardActive]}
       >
         {isActive ? (
           <LinearGradient
-            colors={['#E8FAF6', '#D6F7EF']}
+            colors={['#F0F0F5', '#E8E8EF']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={[StyleSheet.absoluteFill, { borderRadius: 18 }]}
@@ -411,7 +411,7 @@ function PaymentReviewCard({ submission, invoice, tenant, room, meterReading, on
   return (
     <Animated.View style={[styles.paymentCard, anim]}>
       <LinearGradient
-        colors={['#FFFFFF', '#F8FFFE']}
+        colors={['#FFFFFF', '#F8F8FC']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
@@ -561,67 +561,68 @@ function RoomStatusBoard({ title, items }) {
 }
 
 // ---------------------------------------------------------------------------
-// SetupTourCard (enhanced)
+// SetupTourCard — compact horizontal stepper
 // ---------------------------------------------------------------------------
 function SetupTourCard({ steps, onOpen }) {
   const completedCount = steps.filter((step) => step.done).length;
   const nextStep = steps.find((step) => !step.done);
-  const progress = steps.length ? completedCount / steps.length : 0;
-  const progressWidth = useSharedValue(0);
-
-  useEffect(() => {
-    progressWidth.value = withSpring(progress, springTokens.gentle);
-  }, [progress, progressWidth]);
-
-  const progressStyle = useAnimatedStyle(() => ({
-    width: `${progressWidth.value * 100}%`,
-  }));
 
   return (
     <View style={styles.tourCard}>
       <LinearGradient
-        colors={['#FFFFFF', '#F0FEFB']}
+        colors={['#FFFFFF', '#F4F4F8']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
       />
+
+      {/* Top row: label + count pill */}
       <View style={styles.tourCardHeader}>
-        <View>
-          <Text style={styles.tourCardEyebrow}>Setup tour</Text>
-          <Text style={styles.tourCardTitle}>
-            {completedCount < steps.length ? `${steps.length - completedCount} steps left` : 'All done!'}
-          </Text>
-        </View>
+        <Text style={styles.tourCardEyebrow}>Setup tour</Text>
         <View style={styles.tourProgressCount}>
           <Text style={styles.tourProgressCountText}>{completedCount}/{steps.length}</Text>
         </View>
       </View>
 
-      <View style={styles.tourProgressBar}>
-        <Animated.View style={[styles.tourProgressFill, progressStyle]} />
+      {/* Horizontal stepper */}
+      <View style={styles.tourStepper}>
+        {steps.map((step, index) => {
+          const isNext = !step.done && (index === 0 || steps[index - 1].done);
+          return (
+            <React.Fragment key={step.key}>
+              <View style={styles.tourDotCol}>
+                <View style={[
+                  styles.tourStepDot,
+                  step.done && styles.tourStepDotDone,
+                  isNext && styles.tourStepDotNext,
+                ]}>
+                  <Text style={[styles.tourStepDotText, step.done && styles.tourStepDotTextDone]}>
+                    {step.done ? '✓' : index + 1}
+                  </Text>
+                </View>
+                <Text style={[styles.tourDotLabel, step.done && styles.tourDotLabelDone]} numberOfLines={1}>
+                  {step.short}
+                </Text>
+              </View>
+              {index < steps.length - 1 ? (
+                <View style={[styles.tourSegment, step.done && styles.tourSegmentDone]} />
+              ) : null}
+            </React.Fragment>
+          );
+        })}
       </View>
 
-      <View style={styles.tourList}>
-        {steps.map((step, index) => (
-          <View key={step.key} style={styles.tourRow}>
-            <View style={[styles.tourStepDot, step.done && styles.tourStepDotDone]}>
-              <Text style={[styles.tourStepDotText, step.done && styles.tourStepDotTextDone]}>
-                {step.done ? '✓' : index + 1}
-              </Text>
-            </View>
-            <View style={styles.tourStepCopy}>
-              <Text style={[styles.tourStepTitle, step.done && styles.tourStepTitleDone]}>{step.title}</Text>
-              {step.caption ? <Text style={styles.tourStepCaption}>{step.caption}</Text> : null}
-            </View>
-          </View>
-        ))}
-      </View>
-
-      {nextStep ? (
-        <PrimaryButton label={`Next: ${nextStep.title}`} onPress={() => onOpen(nextStep)} />
-      ) : (
-        <PrimaryButton label="Open rent" tone="secondary" onPress={() => onOpen({ tab: 'rent', mode: 'ledger' })} />
-      )}
+      {/* CTA row */}
+      <Pressable
+        onPress={() => nextStep ? onOpen(nextStep) : onOpen({ tab: 'rent', mode: 'ledger' })}
+        android_ripple={{ color: 'rgba(11,14,19,0.08)', borderless: false }}
+        style={styles.tourCta}
+      >
+        <Text style={styles.tourCtaText}>
+          {nextStep ? `Next: ${nextStep.title}` : 'All done — open rent'}
+        </Text>
+        <Text style={styles.tourCtaChevron}>›</Text>
+      </Pressable>
     </View>
   );
 }
@@ -961,6 +962,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     {
       key: 'property',
       title: 'Property',
+      short: 'Property',
       caption: propertyName,
       done: Boolean(state.property?.id),
       tab: 'profile',
@@ -969,6 +971,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     {
       key: 'payout',
       title: 'Payouts',
+      short: 'Payouts',
       caption: settlementAccount.upiId || 'UPI missing',
       done: Boolean(settlementAccount.upiId),
       tab: 'profile',
@@ -977,6 +980,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     {
       key: 'rooms',
       title: 'Add room',
+      short: 'Room',
       caption: `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'}`,
       done: state.rooms.length > 0,
       tab: 'rooms',
@@ -985,6 +989,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     {
       key: 'invite',
       title: 'Assign tenant',
+      short: 'Tenant',
       caption: `${state.tenancies.length} assigned`,
       done: state.tenancies.length > 0,
       tab: 'rooms',
@@ -993,6 +998,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     {
       key: 'movein',
       title: 'Start stay',
+      short: 'Move-in',
       caption: `${activeTenancies.length} active`,
       done: activeTenancies.length > 0,
       tab: 'rooms',
@@ -1001,6 +1007,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     {
       key: 'rent',
       title: 'Track rent',
+      short: 'Rent',
       caption: `${invoices.length} bill${invoices.length === 1 ? '' : 's'}`,
       done: invoices.length > 0,
       tab: 'rent',
@@ -1678,11 +1685,12 @@ const styles = StyleSheet.create({
   },
   statTileLabelAccent: { color: 'rgba(255,255,255,0.82)' },
 
-  // ── Setup tour card ──
+  // ── Setup tour card (horizontal stepper) ──
   tourCard: {
     borderRadius: 24,
-    padding: 20,
-    gap: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 14,
     borderWidth: 1,
     borderColor: palette.border,
     overflow: 'hidden',
@@ -1690,83 +1698,101 @@ const styles = StyleSheet.create({
   },
   tourCardHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
   tourCardEyebrow: {
     fontSize: 11,
     fontWeight: '800',
-    color: palette.accentDeep,
+    color: palette.muted,
     textTransform: 'uppercase',
     letterSpacing: 0.9,
   },
-  tourCardTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: palette.ink,
-    marginTop: 2,
-  },
   tourProgressCount: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: palette.surfaceTint,
+    backgroundColor: palette.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#AEEBDD',
+    borderColor: palette.border,
   },
   tourProgressCountText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    color: palette.accentDeep,
+    color: palette.inkSoft,
   },
-  tourProgressBar: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: palette.surfaceMuted,
-    overflow: 'hidden',
-  },
-  tourProgressFill: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: palette.accent,
-  },
-  tourList: { gap: 10, alignSelf: 'stretch', width: '100%' },
-  tourRow: {
+  tourStepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  tourDotCol: {
+    alignItems: 'center',
+    gap: 5,
+    minWidth: 40,
   },
   tourStepDot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: palette.surface,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: palette.borderStrong,
   },
   tourStepDotDone: {
-    backgroundColor: palette.success,
-    borderColor: palette.success,
+    backgroundColor: palette.ink,
+    borderColor: palette.ink,
+  },
+  tourStepDotNext: {
+    borderColor: palette.ink,
+    borderWidth: 2,
   },
   tourStepDotText: {
-    color: palette.accentDeep,
+    color: palette.muted,
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '900',
   },
-  tourStepDotTextDone: { color: palette.white, fontSize: 13 },
-  tourStepCopy: { flex: 1, minWidth: 0 },
-  tourStepTitle: {
-    color: palette.ink,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '800',
+  tourStepDotTextDone: { color: palette.white, fontSize: 12 },
+  tourDotLabel: {
+    color: palette.muted,
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    maxWidth: 44,
+    textAlign: 'center',
   },
-  tourStepTitleDone: { color: palette.muted, textDecorationLine: 'line-through' },
-  tourStepCaption: { color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  tourDotLabelDone: { color: palette.mutedSoft },
+  tourSegment: {
+    flex: 1,
+    height: 2,
+    backgroundColor: palette.border,
+    marginBottom: 14,
+    borderRadius: 1,
+  },
+  tourSegmentDone: {
+    backgroundColor: palette.ink,
+  },
+  tourCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 2,
+    paddingTop: 2,
+  },
+  tourCtaText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: palette.ink,
+  },
+  tourCtaChevron: {
+    fontSize: 18,
+    color: palette.ink,
+    lineHeight: 20,
+  },
 
   // ── Queue items ──
   queueItem: {
@@ -1808,7 +1834,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   pipelineStepActive: {
-    borderColor: '#AEEBDD',
+    borderColor: palette.borderStrong,
   },
   pipelineStepNumber: {
     width: 36,

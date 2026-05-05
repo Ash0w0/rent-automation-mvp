@@ -39,7 +39,7 @@ export const palette = {
   backgroundWarm: '#F0F2F5',
   surface: '#FFFFFF',
   surfaceMuted: '#F7F9FB',
-  surfaceTint: '#E6FBF5',
+  surfaceTint: '#F0F0F5',
   surfaceSuccess: '#E8F8EE',
   surfaceWarning: '#FFF4E2',
   surfaceDanger: '#FFEDEA',
@@ -54,13 +54,13 @@ export const palette = {
   // Borders
   border: '#ECEEF2',
   borderStrong: '#DCE0E6',
-  borderFocus: '#A6EBDC',
+  borderFocus: '#B0B0BC',
 
-  // Accent (teal)
-  accent: '#00C7A8',
-  accentDeep: '#008B7A',
-  accentSoft: '#D8FBF1',
-  accentInk: '#024F45',
+  // Accent (monochrome premium)
+  accent: '#0B0E13',
+  accentDeep: '#1A1A2E',
+  accentSoft: '#E8E8EE',
+  accentInk: '#FFFFFF',
 
   // Tones
   success: '#1FA463',
@@ -132,7 +132,7 @@ const statusTone = {
 const sectionTones = {
   default: { backgroundColor: palette.surface, borderColor: palette.border },
   soft: { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
-  accent: { backgroundColor: palette.surfaceTint, borderColor: '#BDF1E2' },
+  accent: { backgroundColor: palette.surfaceTint, borderColor: '#DCDCEC' },
   forest: { backgroundColor: palette.surfaceSuccess, borderColor: '#CCEDD7' },
 };
 
@@ -146,7 +146,7 @@ const focusTones = {
   },
   accent: {
     backgroundColor: palette.surfaceTint,
-    borderColor: '#BDF1E2',
+    borderColor: '#DCDCEC',
     eyebrowColor: palette.accentDeep,
     titleColor: palette.ink,
     descriptionColor: palette.inkSoft,
@@ -253,7 +253,7 @@ export function ScreenSurface({ children, bottomBar = null, hero = null, refresh
     >
       <View style={styles.screenHero}>
         <LinearGradient
-          colors={['#00D6B5', '#00B399']}
+          colors={['#1A1A2E', '#0B0E13']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -378,7 +378,7 @@ export function TabStrip({ tabs, activeTab, onChange }) {
               onChange(tab.value);
             }}
             android_ripple={{
-              color: isActive ? 'rgba(255,255,255,0.18)' : 'rgba(0,199,168,0.18)',
+              color: isActive ? 'rgba(255,255,255,0.18)' : 'rgba(11,14,19,0.08)',
               borderless: false,
             }}
             style={({ pressed }) => [styles.tabCard, pressed && styles.pressedScale]}
@@ -515,7 +515,7 @@ function ActionCard({ item, delay }) {
         }}
         onPressIn={() => { scale.value = withSpring(0.97, springTokens.press); }}
         onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
-        android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: false }}
+        android_ripple={{ color: 'rgba(11,14,19,0.08)', borderless: false }}
         style={[
           styles.actionCard,
           item.tone === 'accent' && styles.actionCardAccent,
@@ -707,7 +707,7 @@ function ChoiceChip({ option, selected, onPress }) {
         onPress={onPress}
         onPressIn={() => { scale.value = withSpring(0.96, springTokens.press); }}
         onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
-        android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: false }}
+        android_ripple={{ color: 'rgba(11,14,19,0.08)', borderless: false }}
         style={[styles.choiceChip, selected && styles.choiceChipSelected]}
       >
         <View style={styles.choiceChipBody}>
@@ -739,7 +739,7 @@ export function PrimaryButton({ label, onPress, tone = 'primary', disabled = fal
   const colors = tones[tone] || tones.primary;
   const isLocked = disabled || loading;
   const rippleColor = tone === 'secondary' || tone === 'ghost'
-    ? 'rgba(0,199,168,0.18)'
+    ? 'rgba(11,14,19,0.10)'
     : 'rgba(255,255,255,0.22)';
 
   const scale = useSharedValue(1);
@@ -1043,7 +1043,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...elevation.e1,
   },
-  actionCardAccent: { backgroundColor: palette.surfaceTint, borderColor: '#BDF1E2' },
+  actionCardAccent: { backgroundColor: palette.surfaceTint, borderColor: '#DCDCEC' },
   actionCardForest: { backgroundColor: palette.surfaceSuccess, borderColor: '#CCEDD7' },
   actionEyebrow: {
     color: palette.muted,
@@ -1118,11 +1118,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   choiceChipBody: { flex: 1, gap: 3 },
-  choiceChipSelected: { borderColor: palette.borderFocus, backgroundColor: palette.surfaceTint },
+  choiceChipSelected: { borderColor: palette.borderStrong, backgroundColor: palette.surfaceMuted },
   choiceTitle: { color: palette.ink, fontSize: 14, fontWeight: '700' },
-  choiceTitleSelected: { color: palette.accentInk },
+  choiceTitleSelected: { color: palette.ink },
   choiceMeta: { color: palette.muted, fontSize: 12, lineHeight: 18 },
-  choiceMetaSelected: { color: palette.accentDeep },
+  choiceMetaSelected: { color: palette.inkSoft },
   choiceCheck: {
     width: 22,
     height: 22,
@@ -1174,7 +1174,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: palette.surfaceTint,
     borderWidth: 1,
-    borderColor: '#BDF1E2',
+    borderColor: '#DCDCEC',
   },
   emptyIconText: { fontSize: 24, lineHeight: 28 },
   emptyTitle: { color: palette.ink, fontSize: 16, fontWeight: '800', textAlign: 'center' },

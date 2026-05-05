@@ -61,7 +61,7 @@ function ActionTile({ label, icon, onPress, disabled = false, primary = false })
         android_ripple={
           disabled
             ? undefined
-            : { color: primary ? 'rgba(255,255,255,0.22)' : 'rgba(0,199,168,0.18)', borderless: false }
+            : { color: primary ? 'rgba(255,255,255,0.22)' : 'rgba(11,14,19,0.10)', borderless: false }
         }
         style={[
           styles.actionTile,
