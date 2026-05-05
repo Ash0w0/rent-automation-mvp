@@ -413,6 +413,10 @@ useEffect(() => {
         preserveSession: true,
       });
     },
+
+    refresh() {
+      return runServerAction(() => fetchAppState(), { preserveSession: true });
+    },
   };
 
   return { state, actions };

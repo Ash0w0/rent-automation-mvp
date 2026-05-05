@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { palette } from './uiAirbnb';
+import { useToast } from './ToastHost';
 
 let Clipboard = null;
 try {
@@ -42,18 +43,26 @@ export function TempPasswordShareModal({
   inviterName,
   role = 'tenant',
 }) {
+  const toast = useToast();
+
   if (!visible) return null;
 
   const message = buildMessage({ recipientName, recipientPhone, role, tempPassword, inviterName });
   const phoneDigits = digitsOnly(recipientPhone);
 
   const handleCopy = async () => {
+    if (!Clipboard?.setStringAsync) {
+      toast.show({
+        tone: 'danger',
+        message: 'Copy not available on this device. Long-press the password to select it.',
+      });
+      return;
+    }
     try {
-      if (Clipboard?.setStringAsync) {
-        await Clipboard.setStringAsync(tempPassword);
-      }
+      await Clipboard.setStringAsync(tempPassword);
+      toast.show({ tone: 'success', message: 'Password copied to clipboard.' });
     } catch (_e) {
-      /* ignore */
+      toast.show({ tone: 'danger', message: 'Could not copy. Long-press the password instead.' });
     }
   };
 
@@ -81,26 +90,41 @@ export function TempPasswordShareModal({
       transparent
       onRequestClose={onDismiss}
     >
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <Text style={styles.title}>Temporary password</Text>
+      <Pressable style={styles.backdrop} onPress={onDismiss}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.title}>Temporary password</Text>
+            <Pressable
+              onPress={onDismiss}
+              hitSlop={12}
+              android_ripple={{ color: 'rgba(0,0,0,0.12)', borderless: true, radius: 20 }}
+              style={({ pressed }) => [styles.closeButton, pressed && styles.actionPressed]}
+            >
+              <Text style={styles.closeIcon}>×</Text>
+            </Pressable>
+          </View>
           <Text style={styles.subtitle}>
             Share this with {recipientName || 'the user'}. They'll be asked to change it on first login.
           </Text>
 
           <View style={styles.passwordBox}>
-            <Text style={styles.passwordText}>{tempPassword}</Text>
+            <Text selectable style={styles.passwordText}>{tempPassword}</Text>
           </View>
 
           <Text style={styles.warning}>This password won't be shown again.</Text>
 
           <View style={styles.actionRow}>
-            <Pressable onPress={handleCopy} style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
+            <Pressable
+              onPress={handleCopy}
+              android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
+              style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
+            >
               <Text style={styles.actionText}>Copy</Text>
             </Pressable>
             <Pressable
               onPress={handleWhatsApp}
               disabled={!phoneDigits}
+              android_ripple={phoneDigits ? { color: 'rgba(255,255,255,0.22)', borderless: false } : undefined}
               style={({ pressed }) => [
                 styles.action,
                 !phoneDigits && styles.actionDisabled,
@@ -109,22 +133,31 @@ export function TempPasswordShareModal({
             >
               <Text style={styles.actionText}>WhatsApp</Text>
             </Pressable>
-            <Pressable onPress={handleSms} style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
+            <Pressable
+              onPress={handleSms}
+              android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
+              style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
+            >
               <Text style={styles.actionText}>SMS</Text>
             </Pressable>
-            <Pressable onPress={handleShare} style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}>
+            <Pressable
+              onPress={handleShare}
+              android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
+              style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
+            >
               <Text style={styles.actionText}>Share...</Text>
             </Pressable>
           </View>
 
           <Pressable
             onPress={onDismiss}
+            android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
             style={({ pressed }) => [styles.dismiss, pressed && styles.actionPressed]}
           >
             <Text style={styles.dismissText}>I've shared it</Text>
           </Pressable>
-        </View>
-      </View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
@@ -144,6 +177,9 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     gap: 14,
   },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  closeButton: { padding: 4 },
+  closeIcon: { fontSize: 26, color: '#1F2733', lineHeight: 30 },
   title: { fontSize: 22, fontWeight: '800', color: '#1F2733' },
   subtitle: { fontSize: 14, color: palette.muted, lineHeight: 20 },
   passwordBox: {

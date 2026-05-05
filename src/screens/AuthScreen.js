@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
-import { Banner, Field, palette } from '../components/uiAirbnb';
+import { Banner, Field, PrimaryButton, palette } from '../components/uiAirbnb';
 import { CountryCodePicker } from '../components/CountryCodePicker';
+import { useAsyncAction } from '../hooks/useAsyncAction';
+import { useAndroidBackHandler } from '../hooks/useAndroidBackHandler';
 const {
   buildPhoneValidationMessage,
   DEFAULT_DIAL_CODE,
@@ -16,6 +18,12 @@ const ROLES = [
   { key: 'super_admin', label: 'Super Admin' },
 ];
 
+const MODES = {
+  LOGIN: 'login',
+  FORGOT_REQUEST: 'forgot-request',
+  FORGOT_RESET: 'forgot-reset',
+};
+
 export function AuthScreen({
   onLogin,
   onForgotPasswordRequestOtp,
@@ -24,100 +32,141 @@ export function AuthScreen({
   backendError = null,
 }) {
   const [role, setRole] = useState('tenant');
-  const [mode, setMode] = useState('login'); // login | forgot-request | forgot-reset
+  const [mode, setMode] = useState(MODES.LOGIN);
   const [phone, setPhone] = useState('');
   const [countryDialCode, setCountryDialCode] = useState(DEFAULT_DIAL_CODE);
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [message, setMessage] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [serverMessage, setServerMessage] = useState(null);
 
-  const resetForm = () => {
+  const passwordRef = useRef(null);
+  const otpRef = useRef(null);
+  const newPasswordRef = useRef(null);
+
+  const resetForm = useCallback(() => {
     setPhone('');
     setCountryDialCode(DEFAULT_DIAL_CODE);
     setPassword('');
     setOtp('');
     setNewPassword('');
-    setMessage(null);
-  };
+    setFieldErrors({});
+    setServerMessage(null);
+  }, []);
+
+  const goToMode = useCallback((nextMode) => {
+    setMode(nextMode);
+    setFieldErrors({});
+    setServerMessage(null);
+    if (nextMode === MODES.LOGIN) {
+      setOtp('');
+      setNewPassword('');
+    }
+  }, []);
 
   const handleRoleChange = (nextRole) => {
     setRole(nextRole);
-    setMode('login');
+    setMode(MODES.LOGIN);
     resetForm();
   };
 
-  const requireValidPhone = () => {
+  // Hardware back: forgot-reset → forgot-request → login → default exit
+  useAndroidBackHandler(() => {
+    if (mode === MODES.FORGOT_RESET) {
+      goToMode(MODES.FORGOT_REQUEST);
+      return true;
+    }
+    if (mode === MODES.FORGOT_REQUEST) {
+      goToMode(MODES.LOGIN);
+      return true;
+    }
+    return false;
+  });
+
+  const validatePhone = () => {
     const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
     if (!normalizedPhone) {
-      setMessage({ tone: 'danger', text: buildPhoneValidationMessage(countryDialCode) });
+      setFieldErrors((current) => ({ ...current, phone: buildPhoneValidationMessage(countryDialCode) }));
       return null;
     }
+    setFieldErrors((current) => ({ ...current, phone: null }));
     return normalizedPhone;
   };
 
-  const handleLogin = async () => {
-    const normalizedPhone = requireValidPhone();
-    if (!normalizedPhone) return;
-    if (!password) {
-      setMessage({ tone: 'danger', text: 'Enter your password.' });
-      return;
+  const loginAction = useAsyncAction(async () => {
+    const normalizedPhone = validatePhone();
+    const errors = {};
+    if (!normalizedPhone) errors.phone = buildPhoneValidationMessage(countryDialCode);
+    if (!password) errors.password = 'Enter your password.';
+    if (Object.keys(errors).length) {
+      setFieldErrors(errors);
+      throw new Error('__validation__');
     }
+    setServerMessage(null);
+    await onLogin(role, normalizedPhone, password);
+  });
 
+  const forgotRequestAction = useAsyncAction(async () => {
+    const normalizedPhone = validatePhone();
+    if (!normalizedPhone) {
+      setFieldErrors({ phone: buildPhoneValidationMessage(countryDialCode) });
+      throw new Error('__validation__');
+    }
+    setServerMessage(null);
+    await onForgotPasswordRequestOtp(role, normalizedPhone);
+    goToMode(MODES.FORGOT_RESET);
+    setServerMessage({ tone: 'info', text: 'OTP sent. Enter the code and your new password below.' });
+  });
+
+  const forgotResetAction = useAsyncAction(async () => {
+    const normalizedPhone = validatePhone();
+    const errors = {};
+    if (!normalizedPhone) errors.phone = buildPhoneValidationMessage(countryDialCode);
+    if (!otp) errors.otp = 'Enter the OTP.';
+    if (!newPassword) errors.newPassword = 'Enter a new password.';
+    else if (newPassword.length < 8) errors.newPassword = 'Min 8 characters.';
+    if (Object.keys(errors).length) {
+      setFieldErrors(errors);
+      throw new Error('__validation__');
+    }
+    setServerMessage(null);
+    await onForgotPasswordReset(role, normalizedPhone, otp, newPassword);
+    goToMode(MODES.LOGIN);
+    setPassword('');
+    setServerMessage({ tone: 'info', text: 'Password updated. Please log in.' });
+  });
+
+  const handleSubmit = async () => {
     try {
-      await onLogin(role, normalizedPhone, password);
-      setMessage(null);
+      if (mode === MODES.LOGIN) await loginAction.run();
+      else if (mode === MODES.FORGOT_REQUEST) await forgotRequestAction.run();
+      else await forgotResetAction.run();
     } catch (error) {
-      setMessage({ tone: 'danger', text: error.message });
-    }
-  };
-
-  const handleForgotRequest = async () => {
-    const normalizedPhone = requireValidPhone();
-    if (!normalizedPhone) return;
-
-    try {
-      await onForgotPasswordRequestOtp(role, normalizedPhone);
-      setMode('forgot-reset');
-      setMessage({ tone: 'info', text: 'OTP sent. Enter the code and your new password below.' });
-    } catch (error) {
-      setMessage({ tone: 'danger', text: error.message });
-    }
-  };
-
-  const handleForgotReset = async () => {
-    const normalizedPhone = requireValidPhone();
-    if (!normalizedPhone) return;
-    if (!otp || !newPassword) {
-      setMessage({ tone: 'danger', text: 'Enter the OTP and a new password (min 8 chars).' });
-      return;
-    }
-
-    try {
-      await onForgotPasswordReset(role, normalizedPhone, otp, newPassword);
-      setMode('login');
-      setOtp('');
-      setNewPassword('');
-      setPassword('');
-      setMessage({ tone: 'info', text: 'Password updated. Please log in.' });
-    } catch (error) {
-      setMessage({ tone: 'danger', text: error.message });
+      if (error?.message === '__validation__') return;
+      setServerMessage({ tone: 'danger', text: error.message });
     }
   };
 
   const isTenant = role === 'tenant';
+  const submitting = loginAction.isLoading || forgotRequestAction.isLoading || forgotResetAction.isLoading;
+
   const title =
-    mode === 'forgot-request'
+    mode === MODES.FORGOT_REQUEST
       ? 'Reset password'
-      : mode === 'forgot-reset'
+      : mode === MODES.FORGOT_RESET
         ? 'Enter OTP & new password'
         : `${role === 'super_admin' ? 'Super admin' : role === 'owner' ? 'Owner' : 'Tenant'} sign in`;
+
   const subtitle =
-    mode === 'login'
+    mode === MODES.LOGIN
       ? 'Use phone and password.'
-      : mode === 'forgot-request'
+      : mode === MODES.FORGOT_REQUEST
         ? 'We will send you a code via SMS.'
         : 'Check your phone for the OTP.';
+
+  const submitLabel =
+    mode === MODES.LOGIN ? 'Log in' : mode === MODES.FORGOT_REQUEST ? 'Send OTP' : 'Update password';
 
   return (
     <View style={styles.root}>
@@ -134,6 +183,7 @@ export function AuthScreen({
           contentContainerStyle={styles.sheetContent}
           bounces={false}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.logoBadge}>
             <View style={styles.logoInner}>
@@ -151,6 +201,7 @@ export function AuthScreen({
                 <Pressable
                   key={option.key}
                   onPress={() => handleRoleChange(option.key)}
+                  android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
                   style={({ pressed }) => [
                     styles.rolePill,
                     role === option.key && styles.rolePillActive,
@@ -169,104 +220,114 @@ export function AuthScreen({
               ))}
             </View>
 
-            {message ? <Banner tone={message.tone} message={message.text} /> : null}
-            {backendError ? <Banner tone="danger" message={backendError} /> : null}
-            {isBusy ? <Banner tone="info" message="Connecting..." /> : null}
+            {serverMessage ? <Banner tone={serverMessage.tone} message={serverMessage.text} /> : null}
+            {!serverMessage && backendError ? <Banner tone="danger" message={backendError} /> : null}
 
             <View style={styles.formBlock}>
               <CountryCodePicker
                 dialCode={countryDialCode}
                 onDialCodeChange={setCountryDialCode}
                 phone={phone}
-                onPhoneChange={setPhone}
-                placeholder="Enter mobile number"
+                onPhoneChange={(value) => {
+                  setPhone(value);
+                  if (fieldErrors.phone) setFieldErrors((c) => ({ ...c, phone: null }));
+                }}
+                placeholder="Mobile number"
               />
-              {mode === 'login' ? (
+              {fieldErrors.phone ? <Text style={styles.fieldErrorText}>{fieldErrors.phone}</Text> : null}
+
+              {mode === MODES.LOGIN ? (
                 <Field
+                  ref={passwordRef}
                   label="Password"
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(value) => {
+                    setPassword(value);
+                    if (fieldErrors.password) setFieldErrors((c) => ({ ...c, password: null }));
+                  }}
                   placeholder="Your password"
                   secureTextEntry
+                  autoComplete="password"
+                  textContentType="password"
+                  returnKeyType="go"
+                  onSubmitEditing={handleSubmit}
+                  blurOnSubmit
+                  error={fieldErrors.password}
                 />
               ) : null}
-              {mode === 'forgot-reset' ? (
+              {mode === MODES.FORGOT_RESET ? (
                 <>
                   <Field
+                    ref={otpRef}
                     label="OTP"
                     value={otp}
-                    onChangeText={setOtp}
+                    onChangeText={(value) => {
+                      setOtp(value);
+                      if (fieldErrors.otp) setFieldErrors((c) => ({ ...c, otp: null }));
+                    }}
                     placeholder="6-digit OTP"
-                    keyboardType="numeric"
+                    keyboardType="number-pad"
+                    autoComplete="sms-otp"
+                    textContentType="oneTimeCode"
+                    returnKeyType="next"
+                    onSubmitEditing={() => newPasswordRef.current?.focus()}
+                    blurOnSubmit={false}
+                    error={fieldErrors.otp}
                   />
                   <Field
+                    ref={newPasswordRef}
                     label="New password"
                     value={newPassword}
-                    onChangeText={setNewPassword}
+                    onChangeText={(value) => {
+                      setNewPassword(value);
+                      if (fieldErrors.newPassword) setFieldErrors((c) => ({ ...c, newPassword: null }));
+                    }}
                     placeholder="Min 8 characters"
                     secureTextEntry
+                    autoComplete="password-new"
+                    textContentType="newPassword"
+                    returnKeyType="go"
+                    onSubmitEditing={handleSubmit}
+                    blurOnSubmit
+                    error={fieldErrors.newPassword}
                   />
                 </>
               ) : null}
             </View>
 
-            <Pressable
-              onPress={
-                mode === 'login'
-                  ? handleLogin
-                  : mode === 'forgot-request'
-                    ? handleForgotRequest
-                    : handleForgotReset
-              }
-              disabled={isBusy}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                isBusy && styles.primaryButtonDisabled,
-                pressed && !isBusy && styles.primaryButtonPressed,
-              ]}
-            >
-              <Text style={styles.primaryButtonText}>
-                {mode === 'login'
-                  ? isBusy
-                    ? 'Please wait...'
-                    : 'Log in'
-                  : mode === 'forgot-request'
-                    ? 'Send OTP'
-                    : 'Update password'}
-              </Text>
-              <Text style={styles.primaryButtonArrow}>{'>>'}</Text>
-            </Pressable>
+            <PrimaryButton
+              label={submitLabel}
+              onPress={handleSubmit}
+              loading={submitting || isBusy}
+              disabled={submitting || isBusy}
+            />
 
-            {mode === 'login' ? (
+            {mode === MODES.LOGIN ? (
               isTenant ? (
-                <View style={styles.ownerLinkWrap}>
-                  <Text style={styles.ownerText}>
-                    Forgot password? <Text style={styles.ownerLinkText}>Ask your owner to reset it.</Text>
+                <View style={styles.footerLinkWrap}>
+                  <Text style={styles.footerText}>
+                    Forgot password? <Text style={styles.footerLinkText}>Ask your owner to reset it.</Text>
                   </Text>
                 </View>
               ) : (
                 <Pressable
-                  onPress={() => {
-                    setMode('forgot-request');
-                    setMessage(null);
-                  }}
-                  style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
+                  onPress={() => goToMode(MODES.FORGOT_REQUEST)}
+                  android_ripple={{ color: 'rgba(36,201,174,0.2)', borderless: true }}
+                  style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
                 >
-                  <Text style={styles.ownerText}>
-                    <Text style={styles.ownerLinkText}>Forgot password?</Text>
+                  <Text style={styles.footerText}>
+                    <Text style={styles.footerLinkText}>Forgot password?</Text>
                   </Text>
                 </Pressable>
               )
             ) : (
               <Pressable
-                onPress={() => {
-                  setMode('login');
-                  setMessage(null);
-                }}
-                style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
+                onPress={() => goToMode(MODES.LOGIN)}
+                android_ripple={{ color: 'rgba(36,201,174,0.2)', borderless: true }}
+                style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
               >
-                <Text style={styles.ownerText}>
-                  <Text style={styles.ownerLinkText}>Back to login</Text>
+                <Text style={styles.footerText}>
+                  <Text style={styles.footerLinkText}>Back to login</Text>
                 </Text>
               </Pressable>
             )}
@@ -285,8 +346,6 @@ const styles = StyleSheet.create({
   mobileShell: {
     flex: 1,
     width: '100%',
-    maxWidth: 460,
-    alignSelf: 'center',
     backgroundColor: '#24C9AE',
   },
   hero: {
@@ -364,33 +423,28 @@ const styles = StyleSheet.create({
   },
   rolePill: {
     flex: 1,
+    minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 999,
     backgroundColor: '#F1F5F4',
     alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   rolePillActive: { backgroundColor: '#24C9AE' },
-  rolePillPressed: { opacity: 0.85 },
+  rolePillPressed: { opacity: 0.9 },
   rolePillText: { fontSize: 13, fontWeight: '700', color: '#5C6470' },
   rolePillTextActive: { color: '#FFFFFF' },
   formBlock: { gap: 14 },
-  primaryButton: {
-    minHeight: 58,
-    borderRadius: 999,
-    backgroundColor: '#24C9AE',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 20,
+  fieldErrorText: {
+    fontSize: 12,
+    color: palette.danger,
+    fontWeight: '700',
+    marginTop: -8,
   },
-  primaryButtonDisabled: { opacity: 0.7 },
-  primaryButtonPressed: { transform: [{ scale: 0.988 }] },
-  primaryButtonText: { fontSize: 17, fontWeight: '800', color: '#FFFFFF' },
-  primaryButtonArrow: { fontSize: 22, lineHeight: 22, fontWeight: '700', color: '#DFFBF6', marginTop: -2 },
-  ownerLinkWrap: { alignItems: 'center', paddingTop: 2 },
-  ownerLinkPressed: { opacity: 0.7 },
-  ownerText: { fontSize: 12, lineHeight: 18, color: palette.muted, textAlign: 'center' },
-  ownerLinkText: { color: '#24C9AE', fontWeight: '700' },
+  footerLinkWrap: { alignItems: 'center', paddingTop: 2, paddingVertical: 8 },
+  footerLinkPressed: { opacity: 0.7 },
+  footerText: { fontSize: 13, lineHeight: 18, color: palette.muted, textAlign: 'center' },
+  footerLinkText: { color: '#24C9AE', fontWeight: '700' },
 });

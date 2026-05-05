@@ -8,6 +8,7 @@ import { ChangePasswordScreen } from './src/screens/ChangePasswordScreen';
 import { OwnerWorkspaceMobile } from './src/screens/OwnerWorkspaceMobile';
 import { SuperAdminWorkspace } from './src/screens/SuperAdminWorkspace';
 import { TenantWorkspaceMobile } from './src/screens/TenantWorkspaceMobile';
+import { ToastProvider } from './src/components/ToastHost';
 import { useRentAppModel } from './src/state/useRentAppModel';
 
 class AppErrorBoundary extends React.Component {
@@ -56,34 +57,36 @@ export default function App() {
 
   return (
     <AppErrorBoundary>
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="light" />
-        <View style={styles.appShell}>
-          {!state.session.role ? (
-            <AuthScreen
-              onLogin={actions.login}
-              onForgotPasswordRequestOtp={actions.forgotPasswordRequestOtp}
-              onForgotPasswordReset={actions.forgotPasswordReset}
-              isBusy={state.isSyncing}
-              backendError={state.backendError}
-            />
-          ) : state.mustChangePassword ? (
-            <ChangePasswordScreen
-              onChangePassword={actions.changePassword}
-              isBusy={state.isSyncing}
-              backendError={state.backendError}
-              forced
-              onLogout={actions.logout}
-            />
-          ) : state.session.role === 'super_admin' ? (
-            <SuperAdminWorkspace state={state} actions={actions} onLogout={actions.logout} />
-          ) : state.session.role === 'owner' ? (
-            <OwnerWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
-          ) : (
-            <TenantWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
-          )}
-        </View>
-      </SafeAreaView>
+      <ToastProvider>
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar style="light" backgroundColor="transparent" translucent />
+          <View style={styles.appShell}>
+            {!state.session.role ? (
+              <AuthScreen
+                onLogin={actions.login}
+                onForgotPasswordRequestOtp={actions.forgotPasswordRequestOtp}
+                onForgotPasswordReset={actions.forgotPasswordReset}
+                isBusy={state.isSyncing}
+                backendError={state.backendError}
+              />
+            ) : state.mustChangePassword ? (
+              <ChangePasswordScreen
+                onChangePassword={actions.changePassword}
+                isBusy={state.isSyncing}
+                backendError={state.backendError}
+                forced
+                onLogout={actions.logout}
+              />
+            ) : state.session.role === 'super_admin' ? (
+              <SuperAdminWorkspace state={state} actions={actions} onLogout={actions.logout} />
+            ) : state.session.role === 'owner' ? (
+              <OwnerWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
+            ) : (
+              <TenantWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
+            )}
+          </View>
+        </SafeAreaView>
+      </ToastProvider>
     </AppErrorBoundary>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import {
   Banner,
@@ -18,6 +18,9 @@ import {
   TabStrip,
   palette,
 } from '../components/uiAirbnb';
+import { useToast } from '../components/ToastHost';
+import { useAndroidBackHandler } from '../hooks/useAndroidBackHandler';
+import { useAsyncAction } from '../hooks/useAsyncAction';
 import { pickImageUpload } from '../lib/imageUploads';
 import { TempPasswordShareModal } from '../components/TempPasswordShareModal';
 
@@ -196,7 +199,7 @@ function QueueItemCard({ item }) {
 }
 
 function OwnerOnboarding({ state, actions, onLogout }) {
-  const [feedback, setFeedback] = useState(null);
+  const toast = useToast();
   const [form, setForm] = useState({
     name: '',
     address: '',
@@ -208,28 +211,19 @@ function OwnerOnboarding({ state, actions, onLogout }) {
     instructions: 'Use room number and month in your UPI note.',
   });
 
-  useEffect(() => {
-    if (!feedback) {
-      return undefined;
-    }
-
-    const timeoutId = setTimeout(() => setFeedback(null), 3200);
-    return () => clearTimeout(timeoutId);
-  }, [feedback]);
-
   const updateField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
+  const createPropertyAction = useAsyncAction(async () => {
+    await actions.createProperty({ ...form, defaultTariff: Number(form.defaultTariff) });
+  });
+
   const submit = async () => {
     try {
-      setFeedback(null);
-      await actions.createProperty({
-        ...form,
-        defaultTariff: Number(form.defaultTariff),
-      });
+      await createPropertyAction.run();
     } catch (error) {
-      setFeedback({ tone: 'danger', text: error.message });
+      toast.show({ tone: 'danger', message: error.message });
     }
   };
 
@@ -244,17 +238,15 @@ function OwnerOnboarding({ state, actions, onLogout }) {
           />
         }
       >
-        {state.isSyncing ? <Banner tone="info" message="Saving..." /> : null}
-        {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
-        {feedback ? <Banner tone={feedback.tone} message={feedback.text} /> : null}
+        {state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
 
         <SectionCard title="Property" tone="accent">
           <Field label="Property name" value={form.name} onChangeText={(value) => updateField('name', value)} placeholder="Lotus PG" />
           <Field label="Address" value={form.address} onChangeText={(value) => updateField('address', value)} multiline />
           <Field label="Manager name" value={form.managerName} onChangeText={(value) => updateField('managerName', value)} />
-          <Field label="Manager phone" value={form.managerPhone} onChangeText={(value) => updateField('managerPhone', value)} keyboardType="phone-pad" />
+          <Field label="Manager phone" value={form.managerPhone} onChangeText={(value) => updateField('managerPhone', value)} keyboardType="phone-pad" autoComplete="tel" />
           <Field label="Electricity rate" value={form.defaultTariff} onChangeText={(value) => updateField('defaultTariff', value)} keyboardType="decimal-pad" />
-          <PrimaryButton label="Create property" onPress={submit} />
+          <PrimaryButton label="Create property" onPress={submit} loading={createPropertyAction.isLoading} disabled={createPropertyAction.isLoading} />
         </SectionCard>
 
         <SectionCard title="Next">
@@ -330,7 +322,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [residentMode, setResidentMode] = useState('rooms');
   const [rentMode, setRentMode] = useState('ledger');
   const [profileMode, setProfileMode] = useState('property');
-  const [feedback, setFeedback] = useState(null);
+  const toast = useToast();
   const property = state.property || {};
   const settlementAccount = state.settlementAccount || {};
   const propertyName = property.name || 'Property';
@@ -511,18 +503,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       setMoveOutForm((current) => ({ ...current, tenancyId: activeTenancies[0].id }));
     }
   }, [moveOutForm.tenancyId, activeTenancies]);
-
-  useEffect(() => {
-    if (!feedback) {
-      return undefined;
-    }
-
-    const timeoutId = setTimeout(() => {
-      setFeedback(null);
-    }, 3200);
-
-    return () => clearTimeout(timeoutId);
-  }, [feedback]);
 
   const summary = {
     occupiedRooms: state.rooms.filter((room) => room.status === 'OCCUPIED').length,
@@ -820,19 +800,35 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       : null,
   ].filter(Boolean);
 
+  const refreshAction = useAsyncAction(() => actions.refresh());
+
+  useAndroidBackHandler(() => {
+    if (activeTab === 'rooms' && residentMode !== 'rooms') {
+      setResidentMode('rooms');
+      return true;
+    }
+    if (activeTab === 'rent' && rentMode !== 'ledger') {
+      setRentMode('ledger');
+      return true;
+    }
+    if (activeTab === 'profile' && profileMode !== 'property') {
+      setProfileMode('property');
+      return true;
+    }
+    return false;
+  });
+
   const handleAction = async (callback, successMessage) => {
     try {
-      setFeedback(null);
       await callback();
-      setFeedback({ tone: 'success', text: successMessage });
+      toast.show({ tone: 'success', message: successMessage });
     } catch (error) {
-      setFeedback({ tone: 'danger', text: error.message });
+      toast.show({ tone: 'danger', message: error.message });
     }
   };
 
   const chooseContractImage = async () => {
     try {
-      setFeedback(null);
       const upload = await pickImageUpload();
       if (!upload) {
         return;
@@ -843,7 +839,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         contractUploads: [...current.contractUploads, upload].slice(0, 3),
       }));
     } catch (error) {
-      setFeedback({ tone: 'danger', text: error.message });
+      toast.show({ tone: 'danger', message: error.message });
     }
   };
 
@@ -1185,9 +1181,16 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         />
       }
       bottomBar={<TabStrip tabs={ownerTabs} activeTab={activeTab} onChange={setActiveTab} />}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshAction.isLoading}
+          onRefresh={() => refreshAction.run().catch(() => {})}
+          colors={[palette.accent]}
+          tintColor={palette.accent}
+        />
+      }
     >
-      {state.isSyncing ? <Banner tone="info" message="Updating..." /> : null}
-      {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
+      {state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
 
       {activeTab === 'home' ? (
         <>
@@ -1333,14 +1336,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         </>
       ) : null}
     </ScreenSurface>
-    {feedback ? (
-      <View pointerEvents="none" style={styles.toastViewport}>
-        <View style={[styles.toastCard, feedback.tone === 'danger' ? styles.toastCardDanger : styles.toastCardSuccess]}>
-          <Text style={styles.toastTitle}>{feedback.tone === 'danger' ? 'Something went wrong' : 'Done'}</Text>
-          <Text style={styles.toastText}>{feedback.text}</Text>
-        </View>
-      </View>
-    ) : null}
     <TempPasswordShareModal
       visible={Boolean(shareDetails)}
       onDismiss={() => setShareDetails(null)}
@@ -1828,47 +1823,5 @@ const styles = StyleSheet.create({
     height: 190,
     borderRadius: 18,
     backgroundColor: palette.surface,
-  },
-  toastViewport: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    left: 72,
-    zIndex: 50,
-    alignItems: 'flex-end',
-  },
-  toastCard: {
-    maxWidth: 280,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    shadowColor: '#1F3130',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.18,
-    shadowRadius: 22,
-    elevation: 8,
-  },
-  toastCardSuccess: {
-    backgroundColor: palette.surfaceSuccess,
-    borderColor: '#CAEAD8',
-  },
-  toastCardDanger: {
-    backgroundColor: palette.surfaceDanger,
-    borderColor: '#F2D7D3',
-  },
-  toastTitle: {
-    color: palette.ink,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 3,
-  },
-  toastText: {
-    color: palette.inkSoft,
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '700',
   },
 });
