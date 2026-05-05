@@ -10,6 +10,13 @@ const {
 function createSeedState() {
   const today = getTodayIso();
 
+  const superAdmin = {
+    id: 'super-admin-1',
+    name: 'Platform Admin',
+    phone: '9000000099',
+    createdAt: today,
+  };
+
   const owner = {
     id: 'owner-1',
     name: 'Lotus Living',
@@ -190,6 +197,15 @@ function createSeedState() {
 
   const reminders = [];
 
+  const seedPasswords = {
+    superAdmin: 'changeme',
+    owner: 'changeme',
+    tenants: {
+      'tenant-1': 'changeme',
+      'tenant-2': 'changeme',
+    },
+  };
+
   return {
     referenceDate: today,
     session: {
@@ -197,7 +213,10 @@ function createSeedState() {
       phone: '',
       currentTenantId: null,
       currentOwnerId: null,
+      currentSuperAdminId: null,
     },
+    superAdmin,
+    seedPasswords,
     owner,
     property,
     settlementAccount,

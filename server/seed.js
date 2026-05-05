@@ -1,4 +1,5 @@
 const { createSeedState } = require('../src/data/seed');
+const { hashPassword } = require('./password');
 
 async function seedDatabase(prisma) {
   const existingOwner = await prisma.owner.findFirst({
@@ -6,14 +7,56 @@ async function seedDatabase(prisma) {
   });
 
   if (existingOwner) {
+    const existingSuperAdmin = await prisma.superAdmin.findFirst({ select: { id: true } });
+    if (!existingSuperAdmin) {
+      const seed = createSeedState();
+      const superAdminHash = await hashPassword(seed.seedPasswords.superAdmin);
+      await prisma.superAdmin.create({
+        data: {
+          ...seed.superAdmin,
+          passwordHash: superAdminHash,
+          mustChangePassword: true,
+        },
+      });
+    }
     return;
   }
 
   const seed = createSeedState();
 
+  const [superAdminHash, ownerHash, tenant1Hash, tenant2Hash] = await Promise.all([
+    hashPassword(seed.seedPasswords.superAdmin),
+    hashPassword(seed.seedPasswords.owner),
+    hashPassword(seed.seedPasswords.tenants['tenant-1']),
+    hashPassword(seed.seedPasswords.tenants['tenant-2']),
+  ]);
+
+  const tenantsWithPasswords = seed.tenants.map((tenant) => ({
+    ...tenant,
+    passwordHash:
+      tenant.id === 'tenant-1' ? tenant1Hash : tenant.id === 'tenant-2' ? tenant2Hash : null,
+    mustChangePassword: true,
+    invitedAt: seed.referenceDate,
+    invitedByOwnerId: seed.owner.id,
+  }));
+
   await prisma.$transaction(async (tx) => {
+    await tx.superAdmin.create({
+      data: {
+        ...seed.superAdmin,
+        passwordHash: superAdminHash,
+        mustChangePassword: true,
+      },
+    });
+
     await tx.owner.create({
-      data: seed.owner,
+      data: {
+        ...seed.owner,
+        passwordHash: ownerHash,
+        mustChangePassword: true,
+        invitedAt: seed.referenceDate,
+        invitedBySuperAdminId: seed.superAdmin.id,
+      },
     });
 
     await tx.property.create({
@@ -33,7 +76,7 @@ async function seedDatabase(prisma) {
     });
 
     await tx.tenant.createMany({
-      data: seed.tenants,
+      data: tenantsWithPasswords,
     });
 
     await tx.tenancy.createMany({

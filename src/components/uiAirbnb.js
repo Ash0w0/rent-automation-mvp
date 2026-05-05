@@ -1,5 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { forwardRef, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import QRCode from 'qrcode';
 
 export const palette = {
@@ -95,9 +107,13 @@ function getBannerTone(tone) {
   return map[tone] || map.info;
 }
 
-export function ScreenSurface({ children, bottomBar = null, hero = null }) {
+export function ScreenSurface({ children, bottomBar = null, hero = null, refreshControl = null }) {
   return (
-    <View style={styles.screenShell}>
+    <KeyboardAvoidingView
+      style={styles.screenShell}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={0}
+    >
       <View style={styles.screenHero}>
         <View style={[styles.heroShape, styles.heroShapeLeft]} />
         <View style={[styles.heroShape, styles.heroShapeCenter]} />
@@ -109,11 +125,13 @@ export function ScreenSurface({ children, bottomBar = null, hero = null }) {
         contentContainerStyle={[styles.screenContent, bottomBar && styles.screenContentWithBottomBar]}
         showsVerticalScrollIndicator={false}
         bounces={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={refreshControl}
       >
         {children}
       </ScrollView>
       {bottomBar ? <View style={styles.bottomBarWrap}>{bottomBar}</View> : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -160,6 +178,7 @@ export function TabStrip({ tabs, activeTab, onChange }) {
           <Pressable
             key={tab.value}
             onPress={() => onChange(tab.value)}
+            android_ripple={{ color: isActive ? 'rgba(255,255,255,0.18)' : 'rgba(36,201,174,0.18)', borderless: false }}
             style={({ pressed }) => [styles.tabCard, isActive && styles.tabCardActive, pressed && styles.pressedScale]}
           >
             <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
@@ -260,6 +279,7 @@ export function ActionGrid({ items }) {
         <Pressable
           key={item.title}
           onPress={item.onPress}
+          android_ripple={{ color: 'rgba(36,201,174,0.18)', borderless: false }}
           style={({ pressed }) => [
             styles.actionCard,
             item.tone === 'accent' && styles.actionCardAccent,
@@ -309,27 +329,66 @@ export function KeyValueRow({ label, value }) {
   );
 }
 
-export function Field({ label, value, onChangeText, placeholder, keyboardType, multiline = false }) {
+export const Field = forwardRef(function Field(
+  {
+    label,
+    value,
+    onChangeText,
+    placeholder,
+    keyboardType,
+    multiline = false,
+    secureTextEntry = false,
+    autoCapitalize,
+    autoComplete,
+    autoCorrect,
+    textContentType,
+    returnKeyType,
+    onSubmitEditing,
+    blurOnSubmit,
+    error,
+    helperText,
+  },
+  ref,
+) {
   const [isFocused, setIsFocused] = useState(false);
+  const hasError = Boolean(error);
+  const helper = hasError ? error : helperText;
 
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
+        ref={ref}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={palette.mutedSoft}
         keyboardType={keyboardType}
         multiline={multiline}
+        secureTextEntry={secureTextEntry}
+        autoCapitalize={autoCapitalize}
+        autoComplete={autoComplete}
+        autoCorrect={autoCorrect}
+        textContentType={textContentType}
+        returnKeyType={returnKeyType}
+        onSubmitEditing={onSubmitEditing}
+        blurOnSubmit={blurOnSubmit}
         selectionColor={palette.accent}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
-        style={[styles.input, multiline && styles.inputMultiline, isFocused && styles.inputFocused]}
+        style={[
+          styles.input,
+          multiline && styles.inputMultiline,
+          isFocused && !hasError && styles.inputFocused,
+          hasError && styles.inputError,
+        ]}
       />
+      {helper ? (
+        <Text style={[styles.fieldHelper, hasError && styles.fieldHelperError]}>{helper}</Text>
+      ) : null}
     </View>
   );
-}
+});
 
 export function ChoiceChips({ options, value, onChange }) {
   return (
@@ -341,6 +400,7 @@ export function ChoiceChips({ options, value, onChange }) {
           <Pressable
             key={option.value}
             onPress={() => onChange(option.value)}
+            android_ripple={{ color: 'rgba(36,201,174,0.18)', borderless: false }}
             style={({ pressed }) => [styles.choiceChip, selected && styles.choiceChipSelected, pressed && styles.pressedScale]}
           >
             <Text style={[styles.choiceTitle, selected && styles.choiceTitleSelected]}>{option.label}</Text>
@@ -352,7 +412,7 @@ export function ChoiceChips({ options, value, onChange }) {
   );
 }
 
-export function PrimaryButton({ label, onPress, tone = 'primary', disabled = false, compact = false }) {
+export function PrimaryButton({ label, onPress, tone = 'primary', disabled = false, compact = false, loading = false }) {
   const tones = {
     primary: { backgroundColor: palette.accent, color: palette.white, borderColor: palette.accent },
     secondary: { backgroundColor: palette.surface, color: palette.ink, borderColor: '#CBE8E1' },
@@ -361,23 +421,35 @@ export function PrimaryButton({ label, onPress, tone = 'primary', disabled = fal
     danger: { backgroundColor: palette.danger, color: palette.white, borderColor: palette.danger },
   };
   const colors = tones[tone] || tones.primary;
+  const isLocked = disabled || loading;
+  const rippleColor = tone === 'secondary' || tone === 'ghost'
+    ? 'rgba(36,201,174,0.18)'
+    : 'rgba(255,255,255,0.22)';
 
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled}
+      disabled={isLocked}
+      android_ripple={isLocked ? undefined : { color: rippleColor, borderless: false }}
       style={({ pressed }) => [
         styles.button,
         compact && styles.buttonCompact,
         {
-          backgroundColor: disabled ? '#F1ECE5' : colors.backgroundColor,
-          borderColor: disabled ? '#E1DACF' : colors.borderColor,
+          backgroundColor: isLocked ? '#F1ECE5' : colors.backgroundColor,
+          borderColor: isLocked ? '#E1DACF' : colors.borderColor,
         },
-        pressed && !disabled && styles.pressedScale,
-        disabled && styles.buttonDisabled,
+        pressed && !isLocked && styles.pressedScale,
+        isLocked && styles.buttonDisabled,
       ]}
     >
-      <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: disabled ? palette.mutedSoft : colors.color }]}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator
+          size="small"
+          color={tone === 'secondary' || tone === 'ghost' ? palette.accentDeep : palette.white}
+        />
+      ) : (
+        <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: isLocked ? palette.mutedSoft : colors.color }]}>{label}</Text>
+      )}
     </Pressable>
   );
 }
@@ -441,8 +513,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.backgroundWarm,
     width: '100%',
-    maxWidth: 460,
-    alignSelf: 'center',
+    ...Platform.select({ web: { maxWidth: 460, alignSelf: 'center' }, default: {} }),
     overflow: 'hidden',
   },
   screenHero: {
@@ -450,7 +521,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.accent,
     justifyContent: 'flex-end',
     paddingHorizontal: 22,
-    paddingTop: 52,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 28 : 52,
     paddingBottom: 34,
     overflow: 'hidden',
   },
@@ -576,11 +647,13 @@ const styles = StyleSheet.create({
   tabCard: {
     flex: 1,
     minWidth: 0,
+    minHeight: 48,
     paddingVertical: 12,
     paddingHorizontal: 8,
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   tabCardActive: {
     backgroundColor: palette.accent,
@@ -741,6 +814,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
     gap: 8,
+    overflow: 'hidden',
   },
   actionCardAccent: {
     backgroundColor: palette.surfaceTint,
@@ -856,9 +930,23 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 10,
   },
+  inputError: {
+    borderColor: palette.danger,
+    backgroundColor: palette.surfaceDanger,
+  },
   inputMultiline: {
     minHeight: 110,
     textAlignVertical: 'top',
+  },
+  fieldHelper: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.muted,
+    marginTop: 2,
+  },
+  fieldHelperError: {
+    color: palette.danger,
+    fontWeight: '700',
   },
   choiceWrap: {
     flexDirection: 'row',
@@ -870,6 +958,7 @@ const styles = StyleSheet.create({
   choiceChip: {
     flexGrow: 1,
     minWidth: 140,
+    minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 20,
@@ -877,6 +966,7 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     backgroundColor: palette.surface,
     gap: 3,
+    overflow: 'hidden',
   },
   choiceChipSelected: {
     borderColor: '#AEEBDD',
@@ -906,9 +996,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   buttonCompact: {
-    minHeight: 44,
+    minHeight: 48,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },

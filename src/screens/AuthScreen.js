@@ -1,136 +1,172 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
-import { Banner, Field, palette } from '../components/uiAirbnb';
+import { Banner, Field, PrimaryButton, palette } from '../components/uiAirbnb';
 import { CountryCodePicker } from '../components/CountryCodePicker';
+import { useAsyncAction } from '../hooks/useAsyncAction';
+import { useAndroidBackHandler } from '../hooks/useAndroidBackHandler';
 const {
   buildPhoneValidationMessage,
   DEFAULT_DIAL_CODE,
   normalizePhoneForCountry,
 } = require('../lib/countryPhone');
 
-const RESEND_WAIT_SECONDS = 30;
+const ROLES = [
+  { key: 'tenant', label: 'Tenant' },
+  { key: 'owner', label: 'Owner' },
+  { key: 'super_admin', label: 'Super Admin' },
+];
 
-function formatResendCountdown(seconds) {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
-}
+const MODES = {
+  LOGIN: 'login',
+  FORGOT_REQUEST: 'forgot-request',
+  FORGOT_RESET: 'forgot-reset',
+};
 
-function maskPhoneNumber(phone) {
-  const digits = String(phone || '').replace(/\D+/g, '');
-  if (digits.length < 8) {
-    return 'your number';
-  }
-
-  return `${digits.slice(0, 2)}••••••${digits.slice(-2)}`;
-}
-
-export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError = null }) {
+export function AuthScreen({
+  onLogin,
+  onForgotPasswordRequestOtp,
+  onForgotPasswordReset,
+  isBusy = false,
+  backendError = null,
+}) {
   const [role, setRole] = useState('tenant');
+  const [mode, setMode] = useState(MODES.LOGIN);
   const [phone, setPhone] = useState('');
   const [countryDialCode, setCountryDialCode] = useState(DEFAULT_DIAL_CODE);
+  const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
-  const [step, setStep] = useState('request');
-  const [message, setMessage] = useState(null);
-  const [resendCountdown, setResendCountdown] = useState(0);
+  const [newPassword, setNewPassword] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [serverMessage, setServerMessage] = useState(null);
 
-  useEffect(() => {
-    if (step !== 'verify' || resendCountdown <= 0) {
-      return undefined;
+  const passwordRef = useRef(null);
+  const otpRef = useRef(null);
+  const newPasswordRef = useRef(null);
+
+  const resetForm = useCallback(() => {
+    setPhone('');
+    setCountryDialCode(DEFAULT_DIAL_CODE);
+    setPassword('');
+    setOtp('');
+    setNewPassword('');
+    setFieldErrors({});
+    setServerMessage(null);
+  }, []);
+
+  const goToMode = useCallback((nextMode) => {
+    setMode(nextMode);
+    setFieldErrors({});
+    setServerMessage(null);
+    if (nextMode === MODES.LOGIN) {
+      setOtp('');
+      setNewPassword('');
     }
-
-    const timeoutId = setTimeout(() => {
-      setResendCountdown((current) => Math.max(0, current - 1));
-    }, 1000);
-
-    return () => clearTimeout(timeoutId);
-  }, [step, resendCountdown]);
-
-  const sendOtp = async (normalizedPhone) => {
-    await onRequestOtp(role, normalizedPhone);
-    setStep('verify');
-    setPhone(normalizedPhone);
-    setResendCountdown(RESEND_WAIT_SECONDS);
-    setMessage({
-      tone: 'info',
-      text: 'OTP sent.',
-    });
-  };
+  }, []);
 
   const handleRoleChange = (nextRole) => {
     setRole(nextRole);
-    setPhone('');
-    setCountryDialCode(DEFAULT_DIAL_CODE);
-    setOtp('');
-    setStep('request');
-    setMessage(null);
-    setResendCountdown(0);
+    setMode(MODES.LOGIN);
+    resetForm();
   };
 
-  const handleRequestOtp = async () => {
+  // Hardware back: forgot-reset → forgot-request → login → default exit
+  useAndroidBackHandler(() => {
+    if (mode === MODES.FORGOT_RESET) {
+      goToMode(MODES.FORGOT_REQUEST);
+      return true;
+    }
+    if (mode === MODES.FORGOT_REQUEST) {
+      goToMode(MODES.LOGIN);
+      return true;
+    }
+    return false;
+  });
+
+  const validatePhone = () => {
     const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
     if (!normalizedPhone) {
-      setMessage({
-        tone: 'danger',
-        text: buildPhoneValidationMessage(countryDialCode),
-      });
-      return;
+      setFieldErrors((current) => ({ ...current, phone: buildPhoneValidationMessage(countryDialCode) }));
+      return null;
     }
-
-    try {
-      await sendOtp(normalizedPhone);
-    } catch (error) {
-      setMessage({ tone: 'danger', text: error.message });
-    }
+    setFieldErrors((current) => ({ ...current, phone: null }));
+    return normalizedPhone;
   };
 
-  const handleResendOtp = async () => {
-    const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
+  const loginAction = useAsyncAction(async () => {
+    const normalizedPhone = validatePhone();
+    const errors = {};
+    if (!normalizedPhone) errors.phone = buildPhoneValidationMessage(countryDialCode);
+    if (!password) errors.password = 'Enter your password.';
+    if (Object.keys(errors).length) {
+      setFieldErrors(errors);
+      throw new Error('__validation__');
+    }
+    setServerMessage(null);
+    await onLogin(role, normalizedPhone, password);
+  });
+
+  const forgotRequestAction = useAsyncAction(async () => {
+    const normalizedPhone = validatePhone();
     if (!normalizedPhone) {
-      setMessage({
-        tone: 'danger',
-        text: buildPhoneValidationMessage(countryDialCode),
-      });
-      return;
+      setFieldErrors({ phone: buildPhoneValidationMessage(countryDialCode) });
+      throw new Error('__validation__');
     }
+    setServerMessage(null);
+    await onForgotPasswordRequestOtp(role, normalizedPhone);
+    goToMode(MODES.FORGOT_RESET);
+    setServerMessage({ tone: 'info', text: 'OTP sent. Enter the code and your new password below.' });
+  });
 
+  const forgotResetAction = useAsyncAction(async () => {
+    const normalizedPhone = validatePhone();
+    const errors = {};
+    if (!normalizedPhone) errors.phone = buildPhoneValidationMessage(countryDialCode);
+    if (!otp) errors.otp = 'Enter the OTP.';
+    if (!newPassword) errors.newPassword = 'Enter a new password.';
+    else if (newPassword.length < 8) errors.newPassword = 'Min 8 characters.';
+    if (Object.keys(errors).length) {
+      setFieldErrors(errors);
+      throw new Error('__validation__');
+    }
+    setServerMessage(null);
+    await onForgotPasswordReset(role, normalizedPhone, otp, newPassword);
+    goToMode(MODES.LOGIN);
+    setPassword('');
+    setServerMessage({ tone: 'info', text: 'Password updated. Please log in.' });
+  });
+
+  const handleSubmit = async () => {
     try {
-      await sendOtp(normalizedPhone);
+      if (mode === MODES.LOGIN) await loginAction.run();
+      else if (mode === MODES.FORGOT_REQUEST) await forgotRequestAction.run();
+      else await forgotResetAction.run();
     } catch (error) {
-      setMessage({ tone: 'danger', text: error.message });
+      if (error?.message === '__validation__') return;
+      setServerMessage({ tone: 'danger', text: error.message });
     }
   };
 
-  const handleLogin = async () => {
-    const normalizedPhone = normalizePhoneForCountry(phone, countryDialCode);
-    if (!normalizedPhone) {
-      setMessage({
-        tone: 'danger',
-        text: buildPhoneValidationMessage(countryDialCode),
-      });
-      return;
-    }
+  const isTenant = role === 'tenant';
+  const submitting = loginAction.isLoading || forgotRequestAction.isLoading || forgotResetAction.isLoading;
 
-    try {
-      await onLogin(role, normalizedPhone, otp);
-      setMessage(null);
-    } catch (error) {
-      setMessage({ tone: 'danger', text: error.message });
-    }
-  };
+  const title =
+    mode === MODES.FORGOT_REQUEST
+      ? 'Reset password'
+      : mode === MODES.FORGOT_RESET
+        ? 'Enter OTP & new password'
+        : `${role === 'super_admin' ? 'Super admin' : role === 'owner' ? 'Owner' : 'Tenant'} sign in`;
 
-  const isOwner = role === 'owner';
-  const title = step === 'verify' ? 'Verify OTP' : isOwner ? 'Owner sign in' : 'Tenant sign in';
   const subtitle =
-    step === 'verify'
-      ? `Code sent to ${maskPhoneNumber(phone)}.`
-      : isOwner
-        ? 'Manage your property.'
-        : 'Use your invited number.';
-  const buttonLabel = step === 'request' ? 'Send OTP' : isBusy ? 'Please wait...' : 'Verify';
-  const resendCountdownLabel = formatResendCountdown(resendCountdown);
+    mode === MODES.LOGIN
+      ? 'Use phone and password.'
+      : mode === MODES.FORGOT_REQUEST
+        ? 'We will send you a code via SMS.'
+        : 'Check your phone for the OTP.';
+
+  const submitLabel =
+    mode === MODES.LOGIN ? 'Log in' : mode === MODES.FORGOT_REQUEST ? 'Send OTP' : 'Update password';
 
   return (
     <View style={styles.root}>
@@ -147,6 +183,7 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
           contentContainerStyle={styles.sheetContent}
           bounces={false}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.logoBadge}>
             <View style={styles.logoInner}>
@@ -159,88 +196,141 @@ export function AuthScreen({ onLogin, onRequestOtp, isBusy = false, backendError
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{subtitle}</Text>
 
-            {message ? <Banner tone={message.tone} message={message.text} /> : null}
-            {backendError ? <Banner tone="danger" message={backendError} /> : null}
-            {isBusy ? <Banner tone="info" message="Connecting..." /> : null}
+            <View style={styles.roleRow}>
+              {ROLES.map((option) => (
+                <Pressable
+                  key={option.key}
+                  onPress={() => handleRoleChange(option.key)}
+                  android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
+                  style={({ pressed }) => [
+                    styles.rolePill,
+                    role === option.key && styles.rolePillActive,
+                    pressed && styles.rolePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.rolePillText,
+                      role === option.key && styles.rolePillTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {serverMessage ? <Banner tone={serverMessage.tone} message={serverMessage.text} /> : null}
+            {!serverMessage && backendError ? <Banner tone="danger" message={backendError} /> : null}
 
             <View style={styles.formBlock}>
               <CountryCodePicker
                 dialCode={countryDialCode}
                 onDialCodeChange={setCountryDialCode}
                 phone={phone}
-                onPhoneChange={setPhone}
-                placeholder="Enter mobile number"
+                onPhoneChange={(value) => {
+                  setPhone(value);
+                  if (fieldErrors.phone) setFieldErrors((c) => ({ ...c, phone: null }));
+                }}
+                placeholder="Mobile number"
               />
-              {step === 'verify' ? (
+              {fieldErrors.phone ? <Text style={styles.fieldErrorText}>{fieldErrors.phone}</Text> : null}
+
+              {mode === MODES.LOGIN ? (
                 <Field
-                  label="OTP"
-                  value={otp}
-                  onChangeText={setOtp}
-                  placeholder="6-digit OTP"
-                  keyboardType="numeric"
+                  ref={passwordRef}
+                  label="Password"
+                  value={password}
+                  onChangeText={(value) => {
+                    setPassword(value);
+                    if (fieldErrors.password) setFieldErrors((c) => ({ ...c, password: null }));
+                  }}
+                  placeholder="Your password"
+                  secureTextEntry
+                  autoComplete="password"
+                  textContentType="password"
+                  returnKeyType="go"
+                  onSubmitEditing={handleSubmit}
+                  blurOnSubmit
+                  error={fieldErrors.password}
                 />
+              ) : null}
+              {mode === MODES.FORGOT_RESET ? (
+                <>
+                  <Field
+                    ref={otpRef}
+                    label="OTP"
+                    value={otp}
+                    onChangeText={(value) => {
+                      setOtp(value);
+                      if (fieldErrors.otp) setFieldErrors((c) => ({ ...c, otp: null }));
+                    }}
+                    placeholder="6-digit OTP"
+                    keyboardType="number-pad"
+                    autoComplete="sms-otp"
+                    textContentType="oneTimeCode"
+                    returnKeyType="next"
+                    onSubmitEditing={() => newPasswordRef.current?.focus()}
+                    blurOnSubmit={false}
+                    error={fieldErrors.otp}
+                  />
+                  <Field
+                    ref={newPasswordRef}
+                    label="New password"
+                    value={newPassword}
+                    onChangeText={(value) => {
+                      setNewPassword(value);
+                      if (fieldErrors.newPassword) setFieldErrors((c) => ({ ...c, newPassword: null }));
+                    }}
+                    placeholder="Min 8 characters"
+                    secureTextEntry
+                    autoComplete="password-new"
+                    textContentType="newPassword"
+                    returnKeyType="go"
+                    onSubmitEditing={handleSubmit}
+                    blurOnSubmit
+                    error={fieldErrors.newPassword}
+                  />
+                </>
               ) : null}
             </View>
 
-            <Pressable
-              onPress={step === 'request' ? handleRequestOtp : handleLogin}
-              disabled={isBusy}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                isBusy && styles.primaryButtonDisabled,
-                pressed && !isBusy && styles.primaryButtonPressed,
-              ]}
-            >
-              <Text style={styles.primaryButtonText}>{buttonLabel}</Text>
-              <Text style={styles.primaryButtonArrow}>{'>>'}</Text>
-            </Pressable>
+            <PrimaryButton
+              label={submitLabel}
+              onPress={handleSubmit}
+              loading={submitting || isBusy}
+              disabled={submitting || isBusy}
+            />
 
-            {step === 'verify' ? (
-              <Pressable
-                onPress={() => {
-                  setStep('request');
-                  setOtp('');
-                  setMessage(null);
-                  setResendCountdown(0);
-                }}
-                style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
-              >
-                <Text style={styles.ownerText}>
-                  Wrong number? <Text style={styles.ownerLinkText}>Change</Text>
-                </Text>
-              </Pressable>
-            ) : null}
-
-            {step === 'verify' ? (
-              resendCountdown > 0 ? (
-                <View style={styles.ownerLinkWrap}>
-                  <Text style={styles.ownerText}>Resend in {resendCountdownLabel}</Text>
+            {mode === MODES.LOGIN ? (
+              isTenant ? (
+                <View style={styles.footerLinkWrap}>
+                  <Text style={styles.footerText}>
+                    Forgot password? <Text style={styles.footerLinkText}>Ask your owner to reset it.</Text>
+                  </Text>
                 </View>
               ) : (
                 <Pressable
-                  onPress={handleResendOtp}
-                  disabled={isBusy}
-                  style={({ pressed }) => [
-                    styles.ownerLinkWrap,
-                    isBusy && styles.ownerLinkDisabled,
-                    pressed && !isBusy && styles.ownerLinkPressed,
-                  ]}
+                  onPress={() => goToMode(MODES.FORGOT_REQUEST)}
+                  android_ripple={{ color: 'rgba(36,201,174,0.2)', borderless: true }}
+                  style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
                 >
-                  <Text style={styles.ownerText}>
-                    <Text style={styles.ownerLinkText}>Resend OTP</Text>
+                  <Text style={styles.footerText}>
+                    <Text style={styles.footerLinkText}>Forgot password?</Text>
                   </Text>
                 </Pressable>
               )
-            ) : null}
-
-            <Pressable
-              onPress={() => handleRoleChange(isOwner ? 'tenant' : 'owner')}
-              style={({ pressed }) => [styles.ownerLinkWrap, pressed && styles.ownerLinkPressed]}
-            >
-              <Text style={styles.ownerText}>
-                <Text style={styles.ownerLinkText}>{isOwner ? 'Switch to tenant' : 'Switch to owner'}</Text>
-              </Text>
-            </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => goToMode(MODES.LOGIN)}
+                android_ripple={{ color: 'rgba(36,201,174,0.2)', borderless: true }}
+                style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
+              >
+                <Text style={styles.footerText}>
+                  <Text style={styles.footerLinkText}>Back to login</Text>
+                </Text>
+              </Pressable>
+            )}
           </View>
         </ScrollView>
       </View>
@@ -256,8 +346,6 @@ const styles = StyleSheet.create({
   mobileShell: {
     flex: 1,
     width: '100%',
-    maxWidth: 460,
-    alignSelf: 'center',
     backgroundColor: '#24C9AE',
   },
   hero: {
@@ -272,18 +360,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)',
     transform: [{ rotate: '45deg' }],
   },
-  heroShapeLeft: {
-    left: -12,
-    top: 40,
-  },
-  heroShapeCenter: {
-    left: 150,
-    top: 22,
-  },
-  heroShapeRight: {
-    right: -18,
-    top: 52,
-  },
+  heroShapeLeft: { left: -12, top: 40 },
+  heroShapeCenter: { left: 150, top: 22 },
+  heroShapeRight: { right: -18, top: 52 },
   sheet: {
     flex: 1,
     marginTop: -34,
@@ -308,22 +387,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.55)',
   },
-  logoInner: {
-    alignItems: 'center',
-    gap: 2,
-  },
-  logoPrimary: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#1D4C4A',
-    letterSpacing: 0.8,
-  },
-  logoSecondary: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: '#63A39E',
-    letterSpacing: 1.4,
-  },
+  logoInner: { alignItems: 'center', gap: 2 },
+  logoPrimary: { fontSize: 15, fontWeight: '800', color: '#1D4C4A', letterSpacing: 0.8 },
+  logoSecondary: { fontSize: 8, fontWeight: '700', color: '#63A39E', letterSpacing: 1.4 },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 30,
@@ -337,68 +403,48 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   title: {
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: '800',
     color: '#2E3138',
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
     color: '#9097A3',
     textAlign: 'center',
     marginTop: -4,
   },
-  formBlock: {
-    gap: 14,
-  },
-  primaryButton: {
-    minHeight: 58,
-    borderRadius: 999,
-    backgroundColor: '#24C9AE',
+  roleRow: {
     flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  rolePill: {
+    flex: 1,
+    minHeight: 44,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F4',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 20,
+    overflow: 'hidden',
   },
-  primaryButtonDisabled: {
-    opacity: 0.7,
-  },
-  primaryButtonPressed: {
-    transform: [{ scale: 0.988 }],
-  },
-  primaryButtonText: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  primaryButtonArrow: {
-    fontSize: 22,
-    lineHeight: 22,
-    fontWeight: '700',
-    color: '#DFFBF6',
-    marginTop: -2,
-  },
-  ownerLinkWrap: {
-    alignItems: 'center',
-    paddingTop: 2,
-  },
-  ownerLinkPressed: {
-    opacity: 0.7,
-  },
-  ownerLinkDisabled: {
-    opacity: 0.55,
-  },
-  ownerText: {
+  rolePillActive: { backgroundColor: '#24C9AE' },
+  rolePillPressed: { opacity: 0.9 },
+  rolePillText: { fontSize: 13, fontWeight: '700', color: '#5C6470' },
+  rolePillTextActive: { color: '#FFFFFF' },
+  formBlock: { gap: 14 },
+  fieldErrorText: {
     fontSize: 12,
-    lineHeight: 18,
-    color: palette.muted,
-    textAlign: 'center',
-  },
-  ownerLinkText: {
-    color: '#24C9AE',
+    color: palette.danger,
     fontWeight: '700',
+    marginTop: -8,
   },
+  footerLinkWrap: { alignItems: 'center', paddingTop: 2, paddingVertical: 8 },
+  footerLinkPressed: { opacity: 0.7 },
+  footerText: { fontSize: 13, lineHeight: 18, color: palette.muted, textAlign: 'center' },
+  footerLinkText: { color: '#24C9AE', fontWeight: '700' },
 });

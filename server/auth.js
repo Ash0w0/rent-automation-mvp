@@ -66,6 +66,7 @@ function buildSessionTokens(session) {
     phone: session.phone,
     ownerId: session.ownerId || null,
     tenantId: session.tenantId || null,
+    superAdminId: session.superAdminId || null,
   };
 
   return {
@@ -83,7 +84,15 @@ function buildSessionTokens(session) {
   };
 }
 
-function createSessionRecord({ id, role, phone, ownerId = null, tenantId = null, now = new Date() }) {
+function createSessionRecord({
+  id,
+  role,
+  phone,
+  ownerId = null,
+  tenantId = null,
+  superAdminId = null,
+  now = new Date(),
+}) {
   const refreshExpiresAt = getRefreshTokenExpiry(now);
   const sessionExpiresAt = getSessionExpiry(now);
 
@@ -93,6 +102,7 @@ function createSessionRecord({ id, role, phone, ownerId = null, tenantId = null,
     phone,
     ownerId,
     tenantId,
+    superAdminId,
     refreshTokenHash: '',
     sessionExpiresAt: toIso(sessionExpiresAt),
     refreshExpiresAt: toIso(refreshExpiresAt),

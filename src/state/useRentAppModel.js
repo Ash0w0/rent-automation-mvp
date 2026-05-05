@@ -4,24 +4,29 @@ const { createSeedState } = require('../data/seed');
 const {
   addRoom,
   activateTenancy,
+  changePassword,
   closeTenancy,
   completeTenantProfile,
   createProperty,
   fetchAppState,
+  forgotPasswordRequestOtp,
+  forgotPasswordReset,
   generateInvoice,
   hydrateStoredTokens,
+  inviteOwner,
   inviteTenant,
+  loginWithPassword,
   logoutSession,
-  requestOtp,
+  ownerResetTenantPassword,
   reviewMeterReading,
   reviewPayment,
   scheduleMoveOut,
   submitMeterReading,
   submitPayment,
+  superAdminResetOwnerPassword,
   updateProperty,
   updateReminderStatus,
   updateSettlement,
-  verifyOtp,
 } = require('../lib/apiClient');
 
 const emptySession = {
@@ -29,12 +34,14 @@ const emptySession = {
   phone: '',
   currentTenantId: null,
   currentOwnerId: null,
+  currentSuperAdminId: null,
 };
 
 function createInitialState() {
   return {
     ...createSeedState(),
     session: emptySession,
+    mustChangePassword: false,
     isHydrating: true,
     isSyncing: false,
     backendError: null,
@@ -54,6 +61,10 @@ function buildNextState(serverState, currentState, options = {}) {
   return {
     ...serverState,
     session: preserveSession ? currentState.session : serverState.session || emptySession,
+    mustChangePassword:
+      options.mustChangePassword !== undefined
+        ? options.mustChangePassword
+        : currentState.mustChangePassword || false,
     isHydrating: false,
     isSyncing: false,
     backendError: null,
@@ -139,14 +150,14 @@ useEffect(() => {
   }
 
   const actions = {
-    requestOtp(role, phone) {
+    forgotPasswordRequestOtp(role, phone) {
       setState((currentState) => ({
         ...currentState,
         isSyncing: true,
         backendError: null,
       }));
 
-      return requestOtp(role, phone)
+      return forgotPasswordRequestOtp(role, phone)
         .then((payload) => {
           setState((currentState) => ({
             ...currentState,
@@ -166,11 +177,69 @@ useEffect(() => {
         });
     },
 
-    login(role, phone, code) {
-      return runServerAction(async () => {
-        await verifyOtp(role, phone, code);   // auth only
-        return await fetchAppState();         // full state 👈 REQUIRED
-      });
+    forgotPasswordReset(role, phone, code, newPassword) {
+      setState((currentState) => ({
+        ...currentState,
+        isSyncing: true,
+        backendError: null,
+      }));
+
+      return forgotPasswordReset(role, phone, code, newPassword)
+        .then((payload) => {
+          setState((currentState) => ({
+            ...currentState,
+            isSyncing: false,
+            backendError: null,
+          }));
+          return payload;
+        })
+        .catch((error) => {
+          setState((currentState) => ({
+            ...currentState,
+            isHydrating: false,
+            isSyncing: false,
+            backendError: normalizeError(error),
+          }));
+          throw error;
+        });
+    },
+
+    async login(role, phone, password) {
+      setState((currentState) => ({
+        ...currentState,
+        isSyncing: true,
+        backendError: null,
+      }));
+
+      try {
+        const { state: serverState, mustChangePassword } = await loginWithPassword(
+          role,
+          phone,
+          password,
+        );
+        setState((currentState) =>
+          buildNextState(serverState, currentState, { mustChangePassword }),
+        );
+        return { mustChangePassword };
+      } catch (error) {
+        setState((currentState) => ({
+          ...currentState,
+          isHydrating: false,
+          isSyncing: false,
+          backendError: normalizeError(error),
+        }));
+        throw error;
+      }
+    },
+
+    changePassword(currentPassword, newPassword) {
+      return runServerAction(
+        async () => {
+          await changePassword(currentPassword, newPassword);
+          return await fetchAppState();
+        },
+        { preserveSession: true, mustChangePassword: false },
+      );
     },
 
     async logout() {
@@ -208,10 +277,77 @@ useEffect(() => {
       });
     },
 
-    inviteTenant(payload) {
-      return runServerAction(() => inviteTenant(payload), {
-        preserveSession: true,
-      });
+    async inviteTenant(payload) {
+      setState((currentState) => ({ ...currentState, isSyncing: true, backendError: null }));
+      try {
+        const response = await inviteTenant(payload);
+        setState((currentState) =>
+          buildNextState(response.state, currentState, { preserveSession: true }),
+        );
+        return { tempPassword: response.tempPassword, invitedTenant: response.invitedTenant };
+      } catch (error) {
+        setState((currentState) => ({
+          ...currentState,
+          isHydrating: false,
+          isSyncing: false,
+          backendError: normalizeError(error),
+        }));
+        throw error;
+      }
+    },
+
+    async inviteOwner(payload) {
+      setState((currentState) => ({ ...currentState, isSyncing: true, backendError: null }));
+      try {
+        const response = await inviteOwner(payload);
+        const refreshed = await fetchAppState();
+        setState((currentState) =>
+          buildNextState(refreshed, currentState, { preserveSession: true }),
+        );
+        return { tempPassword: response.tempPassword, owner: response.owner };
+      } catch (error) {
+        setState((currentState) => ({
+          ...currentState,
+          isHydrating: false,
+          isSyncing: false,
+          backendError: normalizeError(error),
+        }));
+        throw error;
+      }
+    },
+
+    async resetOwnerPassword(ownerId) {
+      setState((currentState) => ({ ...currentState, isSyncing: true, backendError: null }));
+      try {
+        const response = await superAdminResetOwnerPassword(ownerId);
+        setState((currentState) => ({ ...currentState, isSyncing: false, backendError: null }));
+        return response;
+      } catch (error) {
+        setState((currentState) => ({
+          ...currentState,
+          isHydrating: false,
+          isSyncing: false,
+          backendError: normalizeError(error),
+        }));
+        throw error;
+      }
+    },
+
+    async resetTenantPassword(tenantId) {
+      setState((currentState) => ({ ...currentState, isSyncing: true, backendError: null }));
+      try {
+        const response = await ownerResetTenantPassword(tenantId);
+        setState((currentState) => ({ ...currentState, isSyncing: false, backendError: null }));
+        return response;
+      } catch (error) {
+        setState((currentState) => ({
+          ...currentState,
+          isHydrating: false,
+          isSyncing: false,
+          backendError: normalizeError(error),
+        }));
+        throw error;
+      }
     },
 
     completeTenantProfile(input) {
@@ -276,6 +412,10 @@ useEffect(() => {
       return runServerAction(() => closeTenancy(tenancyId), {
         preserveSession: true,
       });
+    },
+
+    refresh() {
+      return runServerAction(() => fetchAppState(), { preserveSession: true });
     },
   };
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Linking, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import {
   Banner,
@@ -19,7 +19,14 @@ import {
   TabStrip,
   palette,
 } from '../components/uiAirbnb';
+import { useToast } from '../components/ToastHost';
+import { useAsyncAction } from '../hooks/useAsyncAction';
 import { pickImageUpload } from '../lib/imageUploads';
+import {
+  formatInvoiceStateLabel,
+  formatMeterStateLabel,
+  formatSubmissionStateLabel,
+} from '../lib/statusLabels';
 
 const { formatCurrency, formatDate, formatMonth } = require('../lib/dateUtils');
 const { resolveUploadUrl } = require('../lib/apiClient');
@@ -35,39 +42,6 @@ const profileModes = [
   { label: 'Personal details', value: 'details' },
   { label: 'Agreement', value: 'agreement' },
 ];
-
-function formatInvoiceStateLabel(status) {
-  const labels = {
-    DUE: 'Bill ready',
-    OVERDUE: 'Overdue',
-    PAYMENT_SUBMITTED: 'Pending approval',
-    PAID: 'Paid',
-    ISSUED: 'Bill ready',
-    DRAFT: 'Draft',
-  };
-
-  return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
-}
-
-function formatMeterStateLabel(status) {
-  const labels = {
-    PENDING_REVIEW: 'Pending approval',
-    APPROVED: 'Approved',
-    REJECTED: 'Resubmit',
-  };
-
-  return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
-}
-
-function formatSubmissionStateLabel(status) {
-  const labels = {
-    PENDING_REVIEW: 'Pending approval',
-    APPROVED: 'Approved',
-    REJECTED: 'Resubmit',
-  };
-
-  return labels[status] || String(status || 'Pending').replaceAll('_', ' ');
-}
 
 function UploadPreview({ title, subtitle, uri }) {
   if (!uri) {
@@ -86,7 +60,8 @@ function UploadPreview({ title, subtitle, uri }) {
 export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   const [activeTab, setActiveTab] = useState('home');
   const [profileMode, setProfileMode] = useState('details');
-  const [feedback, setFeedback] = useState(null);
+  const toast = useToast();
+
   const settlementAccount = state.settlementAccount || {};
   const currentMonth = state.referenceDate.slice(0, 7);
   const tenant = state.tenants.find((record) => record.id === state.session.currentTenantId);
@@ -170,38 +145,82 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     setPaymentForm({ utr: '', note: '', proofUpload: null });
   }, [activeInvoice?.id]);
 
-  const handleAction = async (callback, successMessage) => {
-    try {
-      setFeedback(null);
-      await callback();
-      setFeedback({ tone: 'success', text: successMessage });
-    } catch (error) {
-      setFeedback({ tone: 'danger', text: error.message });
-    }
-  };
+  const submitMeterAction = useAsyncAction(async () => {
+    await actions.submitMeterReading({
+      tenancyId: tenancy.id,
+      month: currentMonth,
+      closingReading: Number(meterForm.closingReading),
+      photoUpload: meterForm.photoUpload,
+    });
+    toast.show({ tone: 'success', message: 'Reading submitted.' });
+  });
+
+  const submitPaymentAction = useAsyncAction(async () => {
+    await actions.submitPayment({
+      invoiceId: activeInvoice.id,
+      utr: paymentForm.utr,
+      note: paymentForm.note,
+      proofUpload: paymentForm.proofUpload,
+    });
+    setPaymentForm({ utr: '', note: '', proofUpload: null });
+    toast.show({ tone: 'success', message: 'Proof submitted.' });
+  });
+
+  const saveProfileAction = useAsyncAction(async () => {
+    await actions.completeTenantProfile({ tenantId: tenant.id, ...profileForm });
+    toast.show({ tone: 'success', message: 'Details saved.' });
+  });
+
+  const refreshAction = useAsyncAction(() => actions.refresh());
 
   const chooseMeterPhoto = async () => {
     try {
-      setFeedback(null);
       const upload = await pickImageUpload();
       if (upload) {
         setMeterForm((current) => ({ ...current, photoUpload: upload }));
       }
     } catch (error) {
-      setFeedback({ tone: 'danger', text: error.message });
+      toast.show({ tone: 'danger', message: error.message });
     }
   };
 
   const choosePaymentProof = async () => {
     try {
-      setFeedback(null);
       const upload = await pickImageUpload();
       if (upload) {
         setPaymentForm((current) => ({ ...current, proofUpload: upload }));
       }
     } catch (error) {
-      setFeedback({ tone: 'danger', text: error.message });
+      toast.show({ tone: 'danger', message: error.message });
     }
+  };
+
+  const handleSubmitMeter = async () => {
+    try {
+      await submitMeterAction.run();
+    } catch (error) {
+      toast.show({ tone: 'danger', message: error.message });
+    }
+  };
+
+  const handleSubmitPayment = async () => {
+    try {
+      await submitPaymentAction.run();
+    } catch (error) {
+      toast.show({ tone: 'danger', message: error.message });
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    try {
+      await saveProfileAction.run();
+    } catch (error) {
+      toast.show({ tone: 'danger', message: error.message });
+    }
+  };
+
+  const handleRefresh = () => {
+    refreshAction.run().catch(() => {});
   };
 
   if (!tenant) {
@@ -347,10 +366,16 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     <ScreenSurface
       hero={<PageHeader eyebrow={heroCopy.eyebrow} title={heroCopy.title} subtitle={heroCopy.subtitle} highlights={heroCopy.highlights} />}
       bottomBar={<TabStrip tabs={tenantTabs} activeTab={activeTab} onChange={setActiveTab} />}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshAction.isLoading}
+          onRefresh={handleRefresh}
+          colors={[palette.accent]}
+          tintColor={palette.accent}
+        />
+      }
     >
-      {state.isSyncing ? <Banner tone="info" message="Updating..." /> : null}
-      {!feedback && state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
-      {feedback ? <Banner tone={feedback.tone} message={feedback.text} /> : null}
+      {state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
 
       {activeTab === 'home' ? (
         <>
@@ -402,6 +427,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                         setMeterForm((current) => ({ ...current, closingReading: value }))
                       }
                       keyboardType="numeric"
+                      returnKeyType="done"
                     />
                     <PrimaryButton
                       label={meterForm.photoUpload ? 'Replace meter photo' : 'Upload meter photo'}
@@ -415,18 +441,9 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                     />
                     <PrimaryButton
                       label="Submit reading"
-                      onPress={() =>
-                        handleAction(
-                          () =>
-                            actions.submitMeterReading({
-                              tenancyId: tenancy.id,
-                              month: currentMonth,
-                              closingReading: Number(meterForm.closingReading),
-                              photoUpload: meterForm.photoUpload,
-                            }),
-                          'Reading submitted.',
-                        )
-                      }
+                      onPress={handleSubmitMeter}
+                      loading={submitMeterAction.isLoading}
+                      disabled={submitMeterAction.isLoading}
                     />
                   </View>
                 ) : (
@@ -482,9 +499,9 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                           tone="secondary"
                           onPress={() =>
                             Linking.openURL(activeInvoice.paymentLink).catch(() =>
-                              setFeedback({
+                              toast.show({
                                 tone: 'danger',
-                                text: 'We could not open a UPI app on this device.',
+                                message: 'We could not open a UPI app on this device.',
                               }),
                             )
                           }
@@ -496,21 +513,17 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                             onChangeText={(value) =>
                               setPaymentForm((current) => ({ ...current, utr: value }))
                             }
+                            autoCapitalize="characters"
+                            returnKeyType="done"
                           />
                           <PrimaryButton
-                            label={
-                              paymentForm.proofUpload
-                                ? 'Replace proof'
-                                : 'Upload proof'
-                            }
+                            label={paymentForm.proofUpload ? 'Replace proof' : 'Upload proof'}
                             tone="secondary"
                             onPress={choosePaymentProof}
                           />
                           <UploadPreview
                             title="Payment proof"
-                            subtitle={
-                              paymentForm.proofUpload?.fileName || 'Selected'
-                            }
+                            subtitle={paymentForm.proofUpload?.fileName || 'Selected'}
                             uri={paymentForm.proofUpload?.previewUri}
                           />
                           <Field
@@ -523,20 +536,9 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                           />
                           <PrimaryButton
                             label="Send proof"
-                            onPress={() =>
-                              handleAction(
-                                async () => {
-                                  await actions.submitPayment({
-                                    invoiceId: activeInvoice.id,
-                                    utr: paymentForm.utr,
-                                    note: paymentForm.note,
-                                    proofUpload: paymentForm.proofUpload,
-                                  });
-                                  setPaymentForm({ utr: '', note: '', proofUpload: null });
-                                },
-                                'Proof submitted.',
-                              )
-                            }
+                            onPress={handleSubmitPayment}
+                            loading={submitPaymentAction.isLoading}
+                            disabled={submitPaymentAction.isLoading}
                           />
                         </View>
                       </>
@@ -595,12 +597,49 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
             <ChoiceChips options={profileModes} value={profileMode} onChange={setProfileMode} />
             {profileMode === 'details' ? (
               <>
-                <Field label="Full name" value={profileForm.fullName} onChangeText={(value) => setProfileForm((current) => ({ ...current, fullName: value }))} />
-                <Field label="Email" value={profileForm.email} onChangeText={(value) => setProfileForm((current) => ({ ...current, email: value }))} keyboardType="email-address" />
-                <Field label="Emergency contact number" value={profileForm.emergencyContact} onChangeText={(value) => setProfileForm((current) => ({ ...current, emergencyContact: value }))} keyboardType="phone-pad" />
-                <Field label="ID number" value={profileForm.idDocument} onChangeText={(value) => setProfileForm((current) => ({ ...current, idDocument: value }))} />
-                <Field label="Notes" value={profileForm.notes} onChangeText={(value) => setProfileForm((current) => ({ ...current, notes: value }))} multiline />
-                <PrimaryButton label="Save details" onPress={() => handleAction(() => actions.completeTenantProfile({ tenantId: tenant.id, ...profileForm }), 'Details saved.')} />
+                <Field
+                  label="Full name"
+                  value={profileForm.fullName}
+                  onChangeText={(value) => setProfileForm((current) => ({ ...current, fullName: value }))}
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                />
+                <Field
+                  label="Email"
+                  value={profileForm.email}
+                  onChangeText={(value) => setProfileForm((current) => ({ ...current, email: value }))}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  returnKeyType="next"
+                />
+                <Field
+                  label="Emergency contact number"
+                  value={profileForm.emergencyContact}
+                  onChangeText={(value) => setProfileForm((current) => ({ ...current, emergencyContact: value }))}
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  returnKeyType="next"
+                />
+                <Field
+                  label="ID number"
+                  value={profileForm.idDocument}
+                  onChangeText={(value) => setProfileForm((current) => ({ ...current, idDocument: value }))}
+                  autoCapitalize="characters"
+                  returnKeyType="next"
+                />
+                <Field
+                  label="Notes"
+                  value={profileForm.notes}
+                  onChangeText={(value) => setProfileForm((current) => ({ ...current, notes: value }))}
+                  multiline
+                />
+                <PrimaryButton
+                  label="Save details"
+                  onPress={handleSaveProfile}
+                  loading={saveProfileAction.isLoading}
+                  disabled={saveProfileAction.isLoading}
+                />
               </>
             ) : contract ? (
               <>

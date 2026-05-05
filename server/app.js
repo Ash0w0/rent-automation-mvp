@@ -56,6 +56,24 @@ function createApp(backend) {
       .json(await backend.verifyOtp(request.body || {}, { ipAddress: request.ip }));
   });
 
+  app.post('/api/auth/login', async (request, response) => {
+    response
+      .status(200)
+      .json(await backend.loginWithPassword(request.body || {}, { ipAddress: request.ip }));
+  });
+
+  app.post('/api/auth/forgot-password/request-otp', async (request, response) => {
+    response
+      .status(200)
+      .json(await backend.requestPasswordReset(request.body || {}, { ipAddress: request.ip }));
+  });
+
+  app.post('/api/auth/forgot-password/reset', async (request, response) => {
+    response
+      .status(200)
+      .json(await backend.resetPassword(request.body || {}, { ipAddress: request.ip }));
+  });
+
   app.post('/api/auth/refresh', async (request, response) => {
     response.status(200).json(await backend.refreshAuth(request.body || {}));
   });
@@ -83,6 +101,40 @@ function createApp(backend) {
 
   app.get('/api/state', async (request, response) => {
     response.status(200).json(await backend.getState(request.authSession));
+  });
+
+  app.post('/api/auth/change-password', async (request, response) => {
+    response
+      .status(200)
+      .json(await backend.changePassword(request.body || {}, request.authSession));
+  });
+
+  app.post('/api/super-admin/owners/invite', async (request, response) => {
+    response
+      .status(201)
+      .json(await backend.inviteOwner(request.body || {}, request.authSession));
+  });
+
+  app.post('/api/super-admin/owners/:ownerId/reset-password', async (request, response) => {
+    response
+      .status(200)
+      .json(
+        await backend.superAdminResetOwnerPassword(
+          { ownerId: request.params.ownerId },
+          request.authSession,
+        ),
+      );
+  });
+
+  app.post('/api/tenants/:tenantId/reset-password', async (request, response) => {
+    response
+      .status(200)
+      .json(
+        await backend.ownerResetTenantPassword(
+          { tenantId: request.params.tenantId },
+          request.authSession,
+        ),
+      );
   });
 
   app.post('/api/property', async (request, response) => {
