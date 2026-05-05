@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, StyleSheet, View, Text } from 'react-native';
+import { Animated, Easing, SafeAreaView, StyleSheet, View, Text } from 'react-native';
 
 import { AuthScreen } from './src/screens/AuthScreen';
 import { Banner, palette } from './src/components/uiAirbnb';
@@ -42,6 +42,40 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
+function SyncIndicator({ visible }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const loop = useRef(null);
+
+  useEffect(() => {
+    if (visible) {
+      progress.setValue(0);
+      loop.current = Animated.loop(
+        Animated.timing(progress, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.linear,
+          useNativeDriver: false,
+        }),
+      );
+      loop.current.start();
+    } else {
+      if (loop.current) loop.current.stop();
+      progress.setValue(0);
+    }
+    return () => { if (loop.current) loop.current.stop(); };
+  }, [visible, progress]);
+
+  if (!visible) return null;
+
+  const width = progress.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['0%', '70%', '100%'] });
+
+  return (
+    <View style={styles.syncBar} pointerEvents="none">
+      <Animated.View style={[styles.syncBarFill, { width }]} />
+    </View>
+  );
+}
+
 export default function App() {
   const { state, actions } = useRentAppModel();
 
@@ -61,6 +95,7 @@ export default function App() {
         <SafeAreaView style={styles.safeArea}>
           <StatusBar style="light" backgroundColor="transparent" translucent />
           <View style={styles.appShell}>
+            <SyncIndicator visible={state.isSyncing} />
             {!state.session.role ? (
               <AuthScreen
                 onLogin={actions.login}
@@ -109,5 +144,18 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  syncBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    zIndex: 100,
+    backgroundColor: 'rgba(36,201,174,0.2)',
+  },
+  syncBarFill: {
+    height: 3,
+    backgroundColor: '#24C9AE',
   },
 });
