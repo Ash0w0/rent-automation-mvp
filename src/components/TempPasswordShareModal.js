@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Linking,
   Modal,
@@ -8,8 +8,17 @@ import {
   Text,
   View,
 } from 'react-native';
-import { palette } from './uiAirbnb';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+
+import { palette, elevation } from './uiAirbnb';
 import { useToast } from './ToastHost';
+import { spring as springTokens, haptic } from '../lib/motion';
 
 let Clipboard = null;
 try {
@@ -34,6 +43,39 @@ function digitsOnly(value) {
   return String(value || '').replace(/\D+/g, '');
 }
 
+function ActionTile({ label, icon, onPress, disabled = false, primary = false }) {
+  const scale = useSharedValue(1);
+  const wrap = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View style={[styles.actionTileWrap, wrap]}>
+      <Pressable
+        onPress={() => {
+          if (disabled) return;
+          haptic.light();
+          onPress?.();
+        }}
+        onPressIn={() => { if (!disabled) scale.value = withSpring(0.95, springTokens.press); }}
+        onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
+        disabled={disabled}
+        android_ripple={
+          disabled
+            ? undefined
+            : { color: primary ? 'rgba(255,255,255,0.22)' : 'rgba(0,199,168,0.18)', borderless: false }
+        }
+        style={[
+          styles.actionTile,
+          primary && styles.actionTilePrimary,
+          disabled && styles.actionTileDisabled,
+        ]}
+      >
+        <Text style={[styles.actionTileIcon, primary && styles.actionTileIconPrimary]}>{icon}</Text>
+        <Text style={[styles.actionTileText, primary && styles.actionTileTextPrimary]}>{label}</Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 export function TempPasswordShareModal({
   visible,
   onDismiss,
@@ -44,6 +86,34 @@ export function TempPasswordShareModal({
   role = 'tenant',
 }) {
   const toast = useToast();
+  const [copied, setCopied] = useState(false);
+
+  // Animations
+  const backdrop = useSharedValue(0);
+  const sheetTy = useSharedValue(60);
+  const checkScale = useSharedValue(0);
+
+  useEffect(() => {
+    if (visible) {
+      setCopied(false);
+      backdrop.value = withTiming(1, { duration: 220 });
+      sheetTy.value = withSpring(0, springTokens.gentle);
+    } else {
+      backdrop.value = withTiming(0, { duration: 180 });
+      sheetTy.value = withTiming(60, { duration: 200 });
+    }
+  }, [visible, backdrop, sheetTy]);
+
+  useEffect(() => {
+    checkScale.value = withSpring(copied ? 1 : 0, springTokens.bouncy);
+  }, [copied, checkScale]);
+
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: backdrop.value }));
+  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: sheetTy.value }] }));
+  const checkStyle = useAnimatedStyle(() => ({
+    opacity: checkScale.value,
+    transform: [{ scale: checkScale.value }],
+  }));
 
   if (!visible) return null;
 
@@ -54,13 +124,15 @@ export function TempPasswordShareModal({
     if (!Clipboard?.setStringAsync) {
       toast.show({
         tone: 'danger',
-        message: 'Copy not available on this device. Long-press the password to select it.',
+        message: 'Copy not available. Long-press the password to select it.',
       });
       return;
     }
     try {
       await Clipboard.setStringAsync(tempPassword);
-      toast.show({ tone: 'success', message: 'Password copied to clipboard.' });
+      setCopied(true);
+      haptic.success();
+      toast.show({ tone: 'success', message: 'Password copied.' });
     } catch (_e) {
       toast.show({ tone: 'danger', message: 'Could not copy. Long-press the password instead.' });
     }
@@ -84,132 +156,200 @@ export function TempPasswordShareModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={onDismiss}
-    >
-      <Pressable style={styles.backdrop} onPress={onDismiss}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onDismiss}>
+      <View style={styles.modalRoot}>
+        <Animated.View style={[StyleSheet.absoluteFill, backdropStyle]}>
+          <Pressable style={styles.backdropPressable} onPress={onDismiss}>
+            <View style={styles.backdrop} />
+          </Pressable>
+        </Animated.View>
+
+        <Animated.View style={[styles.sheetWrap, sheetStyle]}>
+          <View style={styles.handle} />
+
           <View style={styles.sheetHeader}>
-            <Text style={styles.title}>Temporary password</Text>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.eyebrow}>Temporary password</Text>
+              <Text style={styles.title}>Share with {recipientName || 'the user'}</Text>
+            </View>
             <Pressable
               onPress={onDismiss}
               hitSlop={12}
-              android_ripple={{ color: 'rgba(0,0,0,0.12)', borderless: true, radius: 20 }}
-              style={({ pressed }) => [styles.closeButton, pressed && styles.actionPressed]}
+              android_ripple={{ color: 'rgba(0,0,0,0.12)', borderless: true, radius: 22 }}
+              style={({ pressed }) => [styles.closeButton, pressed && styles.closeButtonPressed]}
             >
               <Text style={styles.closeIcon}>×</Text>
             </Pressable>
           </View>
+
           <Text style={styles.subtitle}>
-            Share this with {recipientName || 'the user'}. They'll be asked to change it on first login.
+            They'll be asked to change it on first login. This password won't be shown again.
           </Text>
 
-          <View style={styles.passwordBox}>
+          <LinearGradient
+            colors={['#E6FBF5', '#D8FBF1']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.passwordBox}
+          >
+            <Text style={styles.passwordLabel}>PASSWORD</Text>
             <Text selectable style={styles.passwordText}>{tempPassword}</Text>
-          </View>
-
-          <Text style={styles.warning}>This password won't be shown again.</Text>
+            <Animated.View style={[styles.copiedPill, checkStyle]} pointerEvents="none">
+              <Text style={styles.copiedPillText}>✓ Copied</Text>
+            </Animated.View>
+          </LinearGradient>
 
           <View style={styles.actionRow}>
-            <Pressable
-              onPress={handleCopy}
-              android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
-              style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
-            >
-              <Text style={styles.actionText}>Copy</Text>
-            </Pressable>
-            <Pressable
+            <ActionTile label="Copy" icon="⧉" onPress={handleCopy} />
+            <ActionTile
+              label="WhatsApp"
+              icon="✱"
               onPress={handleWhatsApp}
               disabled={!phoneDigits}
-              android_ripple={phoneDigits ? { color: 'rgba(255,255,255,0.22)', borderless: false } : undefined}
-              style={({ pressed }) => [
-                styles.action,
-                !phoneDigits && styles.actionDisabled,
-                pressed && phoneDigits && styles.actionPressed,
-              ]}
-            >
-              <Text style={styles.actionText}>WhatsApp</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleSms}
-              android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
-              style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
-            >
-              <Text style={styles.actionText}>SMS</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleShare}
-              android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
-              style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
-            >
-              <Text style={styles.actionText}>Share...</Text>
-            </Pressable>
+            />
+            <ActionTile label="SMS" icon="✉" onPress={handleSms} />
+            <ActionTile label="Share" icon="↗" onPress={handleShare} />
           </View>
 
           <Pressable
             onPress={onDismiss}
             android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
-            style={({ pressed }) => [styles.dismiss, pressed && styles.actionPressed]}
+            style={({ pressed }) => [styles.dismiss, pressed && styles.dismissPressed]}
           >
             <Text style={styles.dismissText}>I've shared it</Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 25, 0.55)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+  modalRoot: { flex: 1, justifyContent: 'flex-end' },
+  backdropPressable: { flex: 1 },
+  backdrop: { flex: 1, backgroundColor: palette.overlay },
+  sheetWrap: {
+    backgroundColor: palette.surface,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     paddingHorizontal: 22,
-    paddingTop: 22,
+    paddingTop: 14,
     paddingBottom: 32,
-    gap: 14,
+    gap: 16,
+    ...elevation.e3,
   },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  closeButton: { padding: 4 },
-  closeIcon: { fontSize: 26, color: '#1F2733', lineHeight: 30 },
-  title: { fontSize: 22, fontWeight: '800', color: '#1F2733' },
+  handle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#D8DDE3',
+    marginBottom: 6,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  sheetHeaderText: { flex: 1, gap: 4 },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    color: palette.accentDeep,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: palette.ink,
+    letterSpacing: -0.2,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: palette.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonPressed: { opacity: 0.6 },
+  closeIcon: { fontSize: 22, color: palette.ink, lineHeight: 24, fontWeight: '600' },
   subtitle: { fontSize: 14, color: palette.muted, lineHeight: 20 },
   passwordBox: {
-    paddingVertical: 16,
+    paddingVertical: 22,
     paddingHorizontal: 18,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F4',
+    borderRadius: 22,
     alignItems: 'center',
-    marginVertical: 4,
+    borderWidth: 1,
+    borderColor: '#BDF1E2',
+    overflow: 'hidden',
+    gap: 6,
   },
-  passwordText: { fontSize: 24, fontWeight: '800', letterSpacing: 2, color: '#1F2733' },
-  warning: { fontSize: 12, color: '#C0392B', textAlign: 'center', fontWeight: '600' },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
-  action: {
-    flexBasis: '48%',
-    flexGrow: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#24C9AE',
-    alignItems: 'center',
+  passwordLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: palette.accentDeep,
+    letterSpacing: 1.4,
   },
-  actionDisabled: { opacity: 0.4 },
-  actionPressed: { opacity: 0.85 },
-  actionText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  dismiss: {
-    marginTop: 8,
-    paddingVertical: 14,
+  passwordText: {
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: 3,
+    color: palette.accentInk,
+  },
+  copiedPill: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: '#1F2733',
-    alignItems: 'center',
+    backgroundColor: palette.accent,
   },
-  dismissText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  copiedPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: palette.white,
+    letterSpacing: 0.4,
+  },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  actionTileWrap: {
+    flexBasis: '47%',
+    flexGrow: 1,
+  },
+  actionTile: {
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: palette.surfaceMuted,
+    borderWidth: 1,
+    borderColor: palette.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    overflow: 'hidden',
+  },
+  actionTilePrimary: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
+  },
+  actionTileDisabled: { opacity: 0.4 },
+  actionTileIcon: { fontSize: 16, fontWeight: '800', color: palette.accentDeep },
+  actionTileIconPrimary: { color: palette.white },
+  actionTileText: { fontSize: 14, fontWeight: '700', color: palette.ink },
+  actionTileTextPrimary: { color: palette.white },
+  dismiss: {
+    marginTop: 6,
+    paddingVertical: 16,
+    borderRadius: 999,
+    backgroundColor: palette.ink,
+    alignItems: 'center',
+    overflow: 'hidden',
+    ...elevation.e2,
+  },
+  dismissPressed: { opacity: 0.9 },
+  dismissText: { color: palette.white, fontWeight: '800', fontSize: 15, letterSpacing: 0.2 },
 });
