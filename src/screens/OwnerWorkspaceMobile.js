@@ -1,5 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Image, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  Easing as RNEasing,
+  cancelAnimation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import {
   Banner,
@@ -16,6 +29,7 @@ import {
   SectionCard,
   StatusBadge,
   TabStrip,
+  elevation,
   palette,
 } from '../components/uiAirbnb';
 import { useToast } from '../components/ToastHost';
@@ -23,6 +37,7 @@ import { useAndroidBackHandler } from '../hooks/useAndroidBackHandler';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { pickImageUpload } from '../lib/imageUploads';
 import { TempPasswordShareModal } from '../components/TempPasswordShareModal';
+import { spring as springTokens, haptic, staggerDelay } from '../lib/motion';
 
 const { compareIsoDates, formatCurrency, formatDate, formatMonth, parseIsoDate } = require('../lib/dateUtils');
 const { resolveUploadUrl } = require('../lib/apiClient');
@@ -59,30 +74,40 @@ const roomStatusThemes = {
     backgroundColor: '#EAF8EE',
     borderColor: '#BCE8C9',
     color: '#107A45',
+    gradientStart: '#EAF8EE',
+    gradientEnd: '#D4F2E0',
   },
   due: {
     label: 'Due',
     backgroundColor: '#FFF4CF',
     borderColor: '#F0D375',
     color: '#9B6D00',
+    gradientStart: '#FFF4CF',
+    gradientEnd: '#FAEEA0',
   },
   review: {
     label: 'Review',
     backgroundColor: '#FFF8DE',
     borderColor: '#F1D98B',
     color: '#8D6500',
+    gradientStart: '#FFF8DE',
+    gradientEnd: '#FFF0C0',
   },
   overdue: {
     label: 'Overdue',
     backgroundColor: '#FFE8E4',
     borderColor: '#F2B8AE',
     color: '#B42318',
+    gradientStart: '#FFE8E4',
+    gradientEnd: '#FFD0CA',
   },
   vacant: {
     label: 'Vacant',
     backgroundColor: '#F4F7F8',
     borderColor: '#DDE7E9',
     color: '#667085',
+    gradientStart: '#F4F7F8',
+    gradientEnd: '#E8EDF0',
   },
 };
 
@@ -92,11 +117,406 @@ const roomStatusLegend = [
   { key: 'overdue', label: 'Overdue' },
 ];
 
-function UploadPreview({ title, subtitle, uri }) {
-  if (!uri) {
-    return null;
-  }
+// ---------------------------------------------------------------------------
+// Animated primitives
+// ---------------------------------------------------------------------------
 
+function FloatingShape({ style, delay = 0, distance = 8, duration = 4400 }) {
+  const offset = useSharedValue(0);
+  useEffect(() => {
+    offset.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing: RNEasing.inOut(RNEasing.quad) }),
+          withTiming(0, { duration, easing: RNEasing.inOut(RNEasing.quad) }),
+        ),
+        -1,
+        false,
+      ),
+    );
+    return () => cancelAnimation(offset);
+  }, [delay, duration, offset]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { rotate: '45deg' },
+      { translateY: interpolate(offset.value, [0, 1], [0, -distance]) },
+      { translateX: interpolate(offset.value, [0, 1], [0, distance / 2]) },
+    ],
+  }));
+  return <Animated.View style={[style, animatedStyle]} pointerEvents="none" />;
+}
+
+function useEntryAnimation(delay = 0) {
+  const opacity = useSharedValue(0);
+  const ty = useSharedValue(18);
+  useEffect(() => {
+    opacity.value = withDelay(delay, withTiming(1, { duration: 320 }));
+    ty.value = withDelay(delay, withSpring(0, springTokens.gentle));
+  }, [delay, opacity, ty]);
+  return useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: ty.value }],
+  }));
+}
+
+// Animated count-up number
+function AnimatedAmount({ value, style, prefix = '₹', suffix = '' }) {
+  const frameRef = useRef(null);
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    const target = Number(value) || 0;
+    const start = Date.now();
+    const duration = 900;
+    const startVal = 0;
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(startVal + (target - startVal) * eased));
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(tick);
+      }
+    };
+    frameRef.current = requestAnimationFrame(tick);
+    return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); };
+  }, [value]);
+  return (
+    <Text style={style}>{prefix}{display.toLocaleString('en-IN')}{suffix}</Text>
+  );
+}
+
+// Stat tile with animated entrance and large value
+function AnimatedStatTile({ label, value, accent = false, delay = 0, isCount = true }) {
+  const anim = useEntryAnimation(delay);
+  return (
+    <Animated.View style={[styles.statTile, accent && styles.statTileAccent, anim]}>
+      {accent ? (
+        <LinearGradient
+          colors={['#00C7A8', '#00A690']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
+      <Text style={[styles.statTileValue, accent && styles.statTileValueAccent]}>
+        {isCount ? String(value) : value}
+      </Text>
+      <Text style={[styles.statTileLabel, accent && styles.statTileLabelAccent]}>{label}</Text>
+    </Animated.View>
+  );
+}
+
+// Queue item card with staggered slide-in and spring press
+function AnimatedQueueItem({ item, index }) {
+  const anim = useEntryAnimation(staggerDelay(index, 60));
+  const scale = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View style={[anim, pressStyle]}>
+      <Pressable
+        onPressIn={() => { scale.value = withSpring(0.97, springTokens.press); }}
+        onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
+        onPress={() => { haptic.light(); item.onPress?.(); }}
+        android_ripple={{ color: 'rgba(0,199,168,0.12)', borderless: false }}
+        style={styles.queueItem}
+      >
+        <View style={styles.queueCopy}>
+          <InlineGroup>
+            <Text style={styles.queueTitle}>{item.title}</Text>
+            {item.badge ? <StatusBadge label={item.badge} /> : null}
+          </InlineGroup>
+          {item.description ? <Text style={styles.queueDescription}>{item.description}</Text> : null}
+          {item.meta ? <Text style={styles.queueMeta}>{item.meta}</Text> : null}
+        </View>
+        <View style={styles.queueChevron}>
+          <Text style={styles.queueChevronText}>›</Text>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// Pipeline step with animated active state
+function AnimatedPipelineStep({ action, isActive, onPress }) {
+  const scale = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const anim = useEntryAnimation(staggerDelay(Number(action.step) - 1, 70));
+
+  return (
+    <Animated.View style={[anim, pressStyle]}>
+      <Pressable
+        onPress={() => { haptic.light(); onPress?.(); }}
+        onPressIn={() => { scale.value = withSpring(0.97, springTokens.press); }}
+        onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
+        android_ripple={{ color: isActive ? 'rgba(0,199,168,0.18)' : 'rgba(0,0,0,0.07)', borderless: false }}
+        style={[styles.pipelineStep, isActive && styles.pipelineStepActive]}
+      >
+        {isActive ? (
+          <LinearGradient
+            colors={['#E8FAF6', '#D6F7EF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFill, { borderRadius: 18 }]}
+          />
+        ) : null}
+        <View style={[styles.pipelineStepNumber, isActive && styles.pipelineStepNumberActive]}>
+          <Text style={[styles.pipelineStepNumberText, isActive && styles.pipelineStepNumberTextActive]}>
+            {action.step}
+          </Text>
+        </View>
+        <View style={styles.pipelineStepCopy}>
+          <View style={styles.pipelineStepTitleRow}>
+            <Text style={[styles.pipelineStepTitle, isActive && styles.pipelineStepTitleActive]}>
+              {action.title}
+            </Text>
+            {isActive ? (
+              <View style={styles.openBadge}>
+                <Text style={styles.openBadgeText}>OPEN</Text>
+              </View>
+            ) : null}
+          </View>
+          {action.meta ? <Text style={styles.pipelineStepMeta}>{action.meta}</Text> : null}
+        </View>
+        <Text style={[styles.pipelineChevron, isActive && styles.pipelineChevronActive]}>›</Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// Room tile with gradient background and spring scale
+function AnimatedRoomTile({ item, index }) {
+  const theme = roomStatusThemes[item.statusKind] || roomStatusThemes.vacant;
+  const scale = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const anim = useEntryAnimation(staggerDelay(index, 40));
+
+  return (
+    <Animated.View style={[styles.roomTileWrap, anim, pressStyle]}>
+      <Pressable
+        onPressIn={() => { scale.value = withSpring(0.95, springTokens.press); }}
+        onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
+        android_ripple={{ color: 'rgba(0,0,0,0.08)', borderless: false }}
+        style={styles.roomTilePressable}
+      >
+        <LinearGradient
+          colors={[theme.gradientStart, theme.gradientEnd]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFill, { borderRadius: 14, borderWidth: 1, borderColor: theme.borderColor }]}
+        />
+        <View style={styles.roomTileHeader}>
+          <Text style={styles.roomTileNumber}>{item.roomLabel}</Text>
+          <View style={[styles.roomTileStatusPill, { backgroundColor: theme.color }]}>
+            <Text style={styles.roomTileStatusText}>{item.statusLabel}</Text>
+          </View>
+        </View>
+        <Text style={styles.roomTileTenant} numberOfLines={1}>{item.tenantName}</Text>
+        {item.amountLabel ? (
+          <Text style={[styles.roomTileAmount, { color: theme.color }]}>{item.amountLabel}</Text>
+        ) : null}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// Rent focus hero card (gradient, pulsing CTA)
+function RentFocusHero({ title, description, actionLabel, onPress, isAllClear = false }) {
+  const anim = useEntryAnimation(0);
+  const scale = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  const colors = isAllClear
+    ? ['#00C7A8', '#009E86']
+    : ['#1A1A2E', '#16213E'];
+
+  return (
+    <Animated.View style={[anim, pressStyle]}>
+      <Pressable
+        onPress={() => { haptic.light(); onPress?.(); }}
+        onPressIn={() => { scale.value = withSpring(0.97, springTokens.press); }}
+        onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
+        android_ripple={{ color: 'rgba(255,255,255,0.15)', borderless: false }}
+        style={styles.rentFocusCard}
+      >
+        <LinearGradient
+          colors={colors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
+        />
+        <FloatingShape style={styles.heroShapeLeft} delay={0} distance={10} />
+        <FloatingShape style={styles.heroShapeRight} delay={500} distance={12} duration={5200} />
+        <View style={styles.rentFocusContent}>
+          {isAllClear ? (
+            <View style={styles.rentFocusCheckCircle}>
+              <Text style={styles.rentFocusCheckText}>✓</Text>
+            </View>
+          ) : null}
+          <Text style={styles.rentFocusTitle}>{title}</Text>
+          {description ? <Text style={styles.rentFocusDescription}>{description}</Text> : null}
+        </View>
+        <View style={styles.rentFocusCta}>
+          <Text style={styles.rentFocusCtaText}>{actionLabel}</Text>
+          <Text style={styles.rentFocusCtaChevron}>›</Text>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// Management action card (rooms/moveout selector)
+function ManagementActionCard({ action, isActive }) {
+  const scale = useSharedValue(1);
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
+  return (
+    <Animated.View style={pressStyle}>
+      <Pressable
+        onPress={() => { haptic.light(); action.onPress?.(); }}
+        onPressIn={() => { scale.value = withSpring(0.97, springTokens.press); }}
+        onPressOut={() => { scale.value = withSpring(1, springTokens.press); }}
+        android_ripple={{ color: 'rgba(0,199,168,0.12)', borderless: false }}
+        style={[styles.managementCard, isActive && styles.managementCardActive]}
+      >
+        {isActive ? (
+          <LinearGradient
+            colors={['#E8FAF6', '#D6F7EF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFill, { borderRadius: 18 }]}
+          />
+        ) : null}
+        <View style={styles.managementCopy}>
+          <View style={styles.pipelineStepTitleRow}>
+            <Text style={styles.managementTitle}>{action.title}</Text>
+            {isActive ? (
+              <View style={styles.openBadge}>
+                <Text style={styles.openBadgeText}>OPEN</Text>
+              </View>
+            ) : null}
+          </View>
+          {action.meta ? <Text style={styles.managementMeta}>{action.meta}</Text> : null}
+        </View>
+        <Text style={[styles.pipelineChevron, isActive && styles.pipelineChevronActive]}>›</Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// Payment review card with approve/reject
+function PaymentReviewCard({ submission, invoice, tenant, room, meterReading, onApprove, onReject }) {
+  const anim = useEntryAnimation(0);
+  return (
+    <Animated.View style={[styles.paymentCard, anim]}>
+      <LinearGradient
+        colors={['#FFFFFF', '#F8FFFE']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
+      />
+      <View style={styles.paymentCardHeader}>
+        <View style={styles.paymentCardHeaderLeft}>
+          <Text style={styles.paymentCardRoom}>Room {room?.label || '-'}</Text>
+          <Text style={styles.paymentCardTenant}>{tenant?.fullName || 'Tenant'}</Text>
+        </View>
+        <View style={styles.paymentCardBadgeWrap}>
+          <StatusBadge label={submission.status} />
+        </View>
+      </View>
+
+      {invoice ? (
+        <View style={styles.paymentAmountRow}>
+          <View style={styles.paymentAmountBlock}>
+            <Text style={styles.paymentAmountLabel}>Total</Text>
+            <Text style={styles.paymentAmountValue}>{formatCurrency(invoice.totalAmount)}</Text>
+          </View>
+          <View style={styles.paymentAmountDivider} />
+          <View style={styles.paymentAmountBlock}>
+            <Text style={styles.paymentAmountLabel}>Rent</Text>
+            <Text style={styles.paymentAmountValue}>{formatCurrency(invoice.baseRent)}</Text>
+          </View>
+          <View style={styles.paymentAmountDivider} />
+          <View style={styles.paymentAmountBlock}>
+            <Text style={styles.paymentAmountLabel}>Electricity</Text>
+            <Text style={styles.paymentAmountValue}>{formatCurrency(invoice.electricityCharge)}</Text>
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.paymentMeta}>
+        {invoice ? (
+          <View style={styles.paymentMetaRow}>
+            <Text style={styles.paymentMetaLabel}>Month</Text>
+            <Text style={styles.paymentMetaValue}>{formatMonth(invoice.month)}</Text>
+          </View>
+        ) : null}
+        {invoice ? (
+          <View style={styles.paymentMetaRow}>
+            <Text style={styles.paymentMetaLabel}>Due</Text>
+            <Text style={styles.paymentMetaValue}>{formatDate(invoice.dueDate)}</Text>
+          </View>
+        ) : null}
+        {submission.utr ? (
+          <View style={styles.paymentMetaRow}>
+            <Text style={styles.paymentMetaLabel}>UTR</Text>
+            <Text style={styles.paymentMetaValue}>{submission.utr}</Text>
+          </View>
+        ) : null}
+        {meterReading ? (
+          <View style={styles.paymentMetaRow}>
+            <Text style={styles.paymentMetaLabel}>Meter</Text>
+            <Text style={styles.paymentMetaValue}>
+              {meterReading.openingReading} → {meterReading.closingReading}{' '}
+              ({meterReading.closingReading - meterReading.openingReading} units)
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      <UploadPreview
+        title="Meter photo"
+        subtitle={meterReading?.photoLabel || 'Meter proof'}
+        uri={resolveUploadUrl(meterReading?.photoLabel)}
+      />
+      <UploadPreview
+        title="Payment proof"
+        subtitle={submission.screenshotLabel}
+        uri={resolveUploadUrl(submission.screenshotLabel)}
+      />
+
+      <View style={styles.paymentActions}>
+        <Pressable
+          onPress={() => { haptic.success(); onApprove(); }}
+          android_ripple={{ color: 'rgba(16,122,69,0.2)', borderless: false }}
+          style={({ pressed }) => [styles.paymentApproveBtn, pressed && { opacity: 0.85 }]}
+        >
+          <LinearGradient
+            colors={['#107A45', '#0D6438']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
+          />
+          <Text style={styles.paymentApproveBtnText}>✓ Approve</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => { haptic.warning(); onReject(); }}
+          android_ripple={{ color: 'rgba(180,35,24,0.2)', borderless: false }}
+          style={({ pressed }) => [styles.paymentRejectBtn, pressed && { opacity: 0.85 }]}
+        >
+          <Text style={styles.paymentRejectBtnText}>✗ Reject</Text>
+        </Pressable>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UploadPreview
+// ---------------------------------------------------------------------------
+function UploadPreview({ title, subtitle, uri }) {
+  if (!uri) return null;
   return (
     <View style={styles.previewCard}>
       <Text style={styles.previewTitle}>{title}</Text>
@@ -106,6 +526,9 @@ function UploadPreview({ title, subtitle, uri }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// RoomStatusBoard
+// ---------------------------------------------------------------------------
 function RoomStatusBoard({ title, items }) {
   return (
     <View style={styles.roomStatusBoard}>
@@ -116,7 +539,6 @@ function RoomStatusBoard({ title, items }) {
       <View style={styles.roomStatusLegend}>
         {roomStatusLegend.map((legendItem) => {
           const theme = roomStatusThemes[legendItem.key];
-
           return (
             <View key={legendItem.key} style={styles.roomStatusLegendItem}>
               <View style={[styles.roomStatusDot, { backgroundColor: theme.color }]} />
@@ -127,29 +549,9 @@ function RoomStatusBoard({ title, items }) {
       </View>
       {items.length ? (
         <View style={styles.roomTileGrid}>
-          {items.map((item) => {
-            const theme = roomStatusThemes[item.statusKind] || roomStatusThemes.vacant;
-
-            return (
-              <View
-                key={item.roomId}
-                style={[
-                  styles.roomTile,
-                  {
-                    backgroundColor: theme.backgroundColor,
-                    borderColor: theme.borderColor,
-                  },
-                ]}
-              >
-                <View style={styles.roomTileHeader}>
-                  <Text style={styles.roomTileNumber}>{item.roomLabel}</Text>
-                  <Text style={[styles.roomTileStatus, { color: theme.color }]}>{item.statusLabel}</Text>
-                </View>
-                <Text style={styles.roomTileTenant} numberOfLines={1}>{item.tenantName}</Text>
-                {item.amountLabel ? <Text style={styles.roomTileAmount}>{item.amountLabel}</Text> : null}
-              </View>
-            );
-          })}
+          {items.map((item, index) => (
+            <AnimatedRoomTile key={item.roomId} item={item} index={index} />
+          ))}
         </View>
       ) : (
         <Text style={styles.roomStatusEmpty}>No rooms yet.</Text>
@@ -158,46 +560,91 @@ function RoomStatusBoard({ title, items }) {
   );
 }
 
-function PipelineStepCard({ action, isActive, onPress }) {
+// ---------------------------------------------------------------------------
+// SetupTourCard (enhanced)
+// ---------------------------------------------------------------------------
+function SetupTourCard({ steps, onOpen }) {
+  const completedCount = steps.filter((step) => step.done).length;
+  const nextStep = steps.find((step) => !step.done);
+  const progress = steps.length ? completedCount / steps.length : 0;
+  const progressWidth = useSharedValue(0);
+
+  useEffect(() => {
+    progressWidth.value = withSpring(progress, springTokens.gentle);
+  }, [progress, progressWidth]);
+
+  const progressStyle = useAnimatedStyle(() => ({
+    width: `${progressWidth.value * 100}%`,
+  }));
+
   return (
-    <View style={[styles.pipelineStep, isActive && styles.pipelineStepActive]}>
-      <View style={styles.pipelineStepNumber}>
-        <Text style={styles.pipelineStepNumberText}>{action.step}</Text>
-      </View>
-      <View style={styles.pipelineStepCopy}>
-        <InlineGroup>
-          <Text style={styles.pipelineStepTitle}>{action.title}</Text>
-          {isActive ? <StatusBadge label="OPEN" /> : null}
-        </InlineGroup>
-        {action.description ? <Text style={styles.pipelineStepDescription}>{action.description}</Text> : null}
-        {action.meta ? <Text style={styles.pipelineStepMeta}>{action.meta}</Text> : null}
-      </View>
-      <PrimaryButton
-        label={isActive ? 'Open' : 'Go'}
-        tone={isActive ? 'primary' : 'secondary'}
-        compact
-        onPress={onPress}
+    <View style={styles.tourCard}>
+      <LinearGradient
+        colors={['#FFFFFF', '#F0FEFB']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
       />
-    </View>
-  );
-}
-
-function QueueItemCard({ item }) {
-  return (
-    <View style={styles.queueItem}>
-      <View style={styles.queueCopy}>
-        <InlineGroup>
-          <Text style={styles.queueTitle}>{item.title}</Text>
-          {item.badge ? <StatusBadge label={item.badge} /> : null}
-        </InlineGroup>
-        {item.description ? <Text style={styles.queueDescription}>{item.description}</Text> : null}
-        {item.meta ? <Text style={styles.queueMeta}>{item.meta}</Text> : null}
+      <View style={styles.tourCardHeader}>
+        <View>
+          <Text style={styles.tourCardEyebrow}>Setup tour</Text>
+          <Text style={styles.tourCardTitle}>
+            {completedCount < steps.length ? `${steps.length - completedCount} steps left` : 'All done!'}
+          </Text>
+        </View>
+        <View style={styles.tourProgressCount}>
+          <Text style={styles.tourProgressCountText}>{completedCount}/{steps.length}</Text>
+        </View>
       </View>
-      <PrimaryButton label={item.actionLabel} tone="secondary" compact onPress={item.onPress} />
+
+      <View style={styles.tourProgressBar}>
+        <Animated.View style={[styles.tourProgressFill, progressStyle]} />
+      </View>
+
+      <View style={styles.tourList}>
+        {steps.map((step, index) => (
+          <View key={step.key} style={styles.tourRow}>
+            <View style={[styles.tourStepDot, step.done && styles.tourStepDotDone]}>
+              <Text style={[styles.tourStepDotText, step.done && styles.tourStepDotTextDone]}>
+                {step.done ? '✓' : index + 1}
+              </Text>
+            </View>
+            <View style={styles.tourStepCopy}>
+              <Text style={[styles.tourStepTitle, step.done && styles.tourStepTitleDone]}>{step.title}</Text>
+              {step.caption ? <Text style={styles.tourStepCaption}>{step.caption}</Text> : null}
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {nextStep ? (
+        <PrimaryButton label={`Next: ${nextStep.title}`} onPress={() => onOpen(nextStep)} />
+      ) : (
+        <PrimaryButton label="Open rent" tone="secondary" onPress={() => onOpen({ tab: 'rent', mode: 'ledger' })} />
+      )}
     </View>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function getDayDelta(referenceDate, targetDate) {
+  const msPerDay = 1000 * 60 * 60 * 24;
+  return Math.round((parseIsoDate(targetDate).getTime() - parseIsoDate(referenceDate).getTime()) / msPerDay);
+}
+
+function formatDueWindow(referenceDate, dueDate) {
+  const delta = getDayDelta(referenceDate, dueDate);
+  if (delta === 0) return 'Due today';
+  if (delta > 0) return `Due in ${delta} day${delta === 1 ? '' : 's'}`;
+  const overdueDays = Math.abs(delta);
+  return `${overdueDays} day${overdueDays === 1 ? '' : 's'} overdue`;
+}
+
+// ---------------------------------------------------------------------------
+// OwnerOnboarding
+// ---------------------------------------------------------------------------
 function OwnerOnboarding({ state, actions, onLogout }) {
   const toast = useToast();
   const [form, setForm] = useState({
@@ -249,7 +696,7 @@ function OwnerOnboarding({ state, actions, onLogout }) {
           <PrimaryButton label="Create property" onPress={submit} loading={createPropertyAction.isLoading} disabled={createPropertyAction.isLoading} />
         </SectionCard>
 
-        <SectionCard title="Next">
+        <SectionCard title="What's next">
           <View style={styles.tourList}>
             {['Add rooms', 'Assign tenants', 'Complete move-ins', 'Track rent'].map((label, index) => (
               <View key={label} style={styles.tourRow}>
@@ -267,56 +714,9 @@ function OwnerOnboarding({ state, actions, onLogout }) {
   );
 }
 
-function SetupTourCard({ steps, onOpen }) {
-  const completedCount = steps.filter((step) => step.done).length;
-  const nextStep = steps.find((step) => !step.done);
-
-  return (
-    <SectionCard title="Setup tour" subtitle={`${completedCount}/${steps.length} done`} tone="accent">
-      <View style={styles.tourList}>
-        {steps.map((step, index) => (
-          <View key={step.key} style={styles.tourRow}>
-            <View style={[styles.tourStepDot, step.done && styles.tourStepDotDone]}>
-              <Text style={[styles.tourStepDotText, step.done && styles.tourStepDotTextDone]}>
-                {step.done ? 'OK' : index + 1}
-              </Text>
-            </View>
-            <View style={styles.tourStepCopy}>
-              <Text style={styles.tourStepTitle}>{step.title}</Text>
-              {step.caption ? <Text style={styles.tourStepCaption}>{step.caption}</Text> : null}
-            </View>
-          </View>
-        ))}
-      </View>
-      {nextStep ? (
-        <PrimaryButton label={`Next: ${nextStep.title}`} onPress={() => onOpen(nextStep)} />
-      ) : (
-        <PrimaryButton label="Open rent" tone="secondary" onPress={() => onOpen({ tab: 'rent', mode: 'ledger' })} />
-      )}
-    </SectionCard>
-  );
-}
-
-function getDayDelta(referenceDate, targetDate) {
-  const msPerDay = 1000 * 60 * 60 * 24;
-  return Math.round((parseIsoDate(targetDate).getTime() - parseIsoDate(referenceDate).getTime()) / msPerDay);
-}
-
-function formatDueWindow(referenceDate, dueDate) {
-  const delta = getDayDelta(referenceDate, dueDate);
-
-  if (delta === 0) {
-    return 'Due today';
-  }
-
-  if (delta > 0) {
-    return `Due in ${delta} day${delta === 1 ? '' : 's'}`;
-  }
-
-  const overdueDays = Math.abs(delta);
-  return `${overdueDays} day${overdueDays === 1 ? '' : 's'} overdue`;
-}
-
+// ---------------------------------------------------------------------------
+// OwnerWorkspaceMobile
+// ---------------------------------------------------------------------------
 export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [activeTab, setActiveTab] = useState('home');
   const [residentMode, setResidentMode] = useState('rooms');
@@ -552,15 +952,9 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
   const openTask = (task) => {
     setActiveTab(task.tab);
-    if (task.tab === 'rent') {
-      setRentMode(task.mode);
-    }
-    if (task.tab === 'rooms') {
-      setResidentMode(task.mode);
-    }
-    if (task.tab === 'profile') {
-      setProfileMode(task.mode);
-    }
+    if (task.tab === 'rent') setRentMode(task.mode);
+    if (task.tab === 'rooms') setResidentMode(task.mode);
+    if (task.tab === 'profile') setProfileMode(task.mode);
   };
 
   const setupTourSteps = [
@@ -617,26 +1011,11 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const openTourStep = (step) => openTask(step);
 
   const residentSectionCopy = {
-    inventory: {
-      title: 'Add a room',
-      subtitle: '',
-    },
-    rooms: {
-      title: 'Room list',
-      subtitle: '',
-    },
-    invite: {
-      title: 'Invite tenant',
-      subtitle: '',
-    },
-    activate: {
-      title: 'Move-in',
-      subtitle: '',
-    },
-    moveout: {
-      title: 'Move out',
-      subtitle: '',
-    },
+    inventory: { title: 'Add a room', subtitle: '' },
+    rooms: { title: 'Room list', subtitle: '' },
+    invite: { title: 'Invite tenant', subtitle: '' },
+    activate: { title: 'Move-in', subtitle: '' },
+    moveout: { title: 'Move out', subtitle: '' },
   };
 
   const moveInPipelineActions = [
@@ -644,33 +1023,25 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       key: 'inventory',
       step: '1',
       title: 'Add room',
-      description: '',
       meta: `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'} created`,
-      status: 'Setup',
       onPress: () => setResidentMode('inventory'),
     },
     {
       key: 'invite',
       step: '2',
       title: 'Invite tenant',
-      description: '',
-      meta:
-        vacantRooms.length
-          ? `${vacantRooms.length} open room${vacantRooms.length === 1 ? '' : 's'}`
-          : 'No room available',
-      status: 'Occupancy',
+      meta: vacantRooms.length
+        ? `${vacantRooms.length} open room${vacantRooms.length === 1 ? '' : 's'}`
+        : 'No room available',
       onPress: () => setResidentMode('invite'),
     },
     {
       key: 'activate',
       step: '3',
       title: 'Move-in',
-      description: '',
-      meta:
-        invitedTenancies.length
-          ? `${invitedTenancies.length} waiting for agreement`
-          : 'Nothing waiting',
-      status: 'Move-in',
+      meta: invitedTenancies.length
+        ? `${invitedTenancies.length} waiting for agreement`
+        : 'Nothing waiting',
       onPress: () => setResidentMode('activate'),
     },
   ];
@@ -679,17 +1050,15 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     {
       key: 'rooms',
       title: 'Room list',
-      description: '',
       meta: `${state.rooms.length} room${state.rooms.length === 1 ? '' : 's'}`,
-      status: 'Rooms',
       onPress: () => setResidentMode('rooms'),
     },
     {
       key: 'moveout',
       title: 'Move out',
-      description: '',
-      meta: activeTenancies.length ? `${activeTenancies.length} active stay${activeTenancies.length === 1 ? '' : 's'}` : 'No active stays',
-      status: 'Move-out',
+      meta: activeTenancies.length
+        ? `${activeTenancies.length} active stay${activeTenancies.length === 1 ? '' : 's'}`
+        : 'No active stays',
       onPress: () => setResidentMode('moveout'),
     },
   ];
@@ -699,59 +1068,38 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       ? {
           title: `${pendingSubmissions.length} final approval${pendingSubmissions.length > 1 ? 's' : ''} waiting`,
           description: 'Review and close.',
-          actionLabel: 'Open',
+          actionLabel: 'Open approvals',
           onPress: () => setRentMode('payment-review'),
+          isAllClear: false,
         }
       : overdueInvoices.length
         ? {
             title: `${overdueInvoices.length} overdue bill${overdueInvoices.length > 1 ? 's' : ''}`,
             description: 'Needs follow-up.',
-            actionLabel: 'Open',
+            actionLabel: 'View ledger',
             onPress: () => setRentMode('ledger'),
+            isAllClear: false,
           }
         : dueInvoices.length
           ? {
               title: `${dueInvoices.length} bill${dueInvoices.length > 1 ? 's are' : ' is'} due soon`,
               description: 'Check upcoming dues.',
-              actionLabel: 'Open',
+              actionLabel: 'View ledger',
               onPress: () => setRentMode('ledger'),
+              isAllClear: false,
             }
           : {
-            title: 'All clear',
-            description: '',
-            actionLabel: 'Open',
-            onPress: () => setRentMode('ledger'),
-          };
-
-  const rentActions = [
-    {
-      key: 'ledger',
-      title: 'Track dues',
-      description: '',
-      meta:
-        overdueInvoices.length
-          ? `${overdueInvoices.length} overdue`
-          : dueInvoices.length
-            ? `${dueInvoices.length} due`
-            : 'All current',
-      status: 'Collections',
-      onPress: () => setRentMode('ledger'),
-    },
-    {
-      key: 'payment-review',
-      title: 'Final approvals',
-      description: '',
-      meta: pendingSubmissions.length ? `${pendingSubmissions.length} waiting` : 'Nothing waiting',
-      status: 'Approvals',
-      onPress: () => setRentMode('payment-review'),
-    },
-  ];
+              title: 'All clear',
+              description: 'No outstanding dues.',
+              actionLabel: 'View ledger',
+              onPress: () => setRentMode('ledger'),
+              isAllClear: true,
+            };
 
   const ownerQueue = [
     pendingSubmissions.length
       ? {
           title: `${pendingSubmissions.length} final approval${pendingSubmissions.length > 1 ? 's' : ''}`,
-          description: '',
           meta: 'Ready to review',
           badge: 'PENDING_REVIEW',
           actionLabel: 'Review',
@@ -761,7 +1109,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     invitedTenancies.length
       ? {
           title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''} waiting`,
-          description: '',
           meta: 'Agreement pending',
           badge: 'INVITED',
           actionLabel: 'Complete',
@@ -771,7 +1118,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     vacantRooms.length
       ? {
           title: `${vacantRooms.length} open room${vacantRooms.length > 1 ? 's' : ''}`,
-          description: '',
           meta: 'Ready to fill',
           badge: 'VACANT',
           actionLabel: 'Invite',
@@ -781,7 +1127,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     overdueInvoices.length
       ? {
           title: `${overdueInvoices.length} overdue bill${overdueInvoices.length > 1 ? 's' : ''}`,
-          description: '',
           meta: 'Needs follow-up',
           badge: 'OVERDUE',
           actionLabel: 'Track',
@@ -791,7 +1136,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     moveOutTenancies.length
       ? {
           title: `${moveOutTenancies.length} planned move-out${moveOutTenancies.length > 1 ? 's' : ''}`,
-          description: '',
           meta: `Next: Room ${getRoom(moveOutTenancies[0].roomId)?.label || '-'}`,
           badge: 'MOVE_OUT_SCHEDULED',
           actionLabel: 'Manage',
@@ -830,10 +1174,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const chooseContractImage = async () => {
     try {
       const upload = await pickImageUpload();
-      if (!upload) {
-        return;
-      }
-
+      if (!upload) return;
       setContractForm((current) => ({
         ...current,
         contractUploads: [...current.contractUploads, upload].slice(0, 3),
@@ -854,10 +1195,10 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     if (residentMode === 'inventory') {
       return (
         <>
-          <Field label="Room number" value={roomForm.label} onChangeText={(value) => setRoomForm((current) => ({ ...current, label: value }))} placeholder="303" />
-          <Field label="Floor" value={roomForm.floor} onChangeText={(value) => setRoomForm((current) => ({ ...current, floor: value }))} placeholder="3" />
-          <Field label="Meter serial number" value={roomForm.serialNumber} onChangeText={(value) => setRoomForm((current) => ({ ...current, serialNumber: value }))} placeholder="LT-303-C" />
-          <Field label="Meter opening reading" value={roomForm.openingReading} onChangeText={(value) => setRoomForm((current) => ({ ...current, openingReading: value }))} keyboardType="numeric" />
+          <Field label="Room number" value={roomForm.label} onChangeText={(value) => setRoomForm((current) => ({ ...current, label: value }))} placeholder="303" returnKeyType="next" />
+          <Field label="Floor" value={roomForm.floor} onChangeText={(value) => setRoomForm((current) => ({ ...current, floor: value }))} placeholder="3" returnKeyType="next" />
+          <Field label="Meter serial number" value={roomForm.serialNumber} onChangeText={(value) => setRoomForm((current) => ({ ...current, serialNumber: value }))} placeholder="LT-303-C" returnKeyType="next" />
+          <Field label="Meter opening reading" value={roomForm.openingReading} onChangeText={(value) => setRoomForm((current) => ({ ...current, openingReading: value }))} keyboardType="numeric" returnKeyType="go" />
           <PrimaryButton label="Create room" onPress={() => handleAction(async () => {
             await actions.addRoom(roomForm);
             setRoomForm({ label: '', floor: '', serialNumber: '', openingReading: '0' });
@@ -877,10 +1218,10 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
             return (
               <View key={room.id} style={styles.listCard}>
-                <InlineGroup>
+                <View style={styles.listCardHeader}>
                   <Text style={styles.listTitle}>Room {room.label}</Text>
                   <StatusBadge label={room.status} />
-                </InlineGroup>
+                </View>
                 <KeyValueRow label="Resident" value={tenant ? tenant.fullName : 'Available'} />
                 <KeyValueRow label="Floor" value={room.floor} />
                 <KeyValueRow label="Meter" value={`${meter?.serialNumber || '-'} | ${meter?.lastReading ?? '-'}`} />
@@ -912,8 +1253,8 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     if (residentMode === 'invite') {
       return vacantRooms.length ? (
         <View style={styles.inlineSection}>
-          <Field label="Tenant name" value={inviteForm.fullName} onChangeText={(value) => setInviteForm((current) => ({ ...current, fullName: value }))} />
-          <Field label="Tenant mobile number" value={inviteForm.phone} onChangeText={(value) => setInviteForm((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" />
+          <Field label="Tenant name" value={inviteForm.fullName} onChangeText={(value) => setInviteForm((current) => ({ ...current, fullName: value }))} returnKeyType="next" />
+          <Field label="Tenant mobile number" value={inviteForm.phone} onChangeText={(value) => setInviteForm((current) => ({ ...current, phone: value }))} keyboardType="phone-pad" autoComplete="tel" returnKeyType="done" />
           <ChoiceChips value={inviteForm.roomId} onChange={(value) => setInviteForm((current) => ({ ...current, roomId: value }))} options={vacantRooms.map((room) => ({ value: room.id, label: `Room ${room.label}`, meta: `Floor ${room.floor}` }))} />
           <View style={styles.fullWidthAction}>
             <PrimaryButton label="Assign room" onPress={() => handleAction(async () => {
@@ -978,15 +1319,11 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               <Field label="Agreement end" value={contractForm.contractEnd} onChangeText={(value) => setContractForm((current) => ({ ...current, contractEnd: value }))} placeholder="YYYY-MM-DD" />
               <PrimaryButton label="Start stay" onPress={() => handleAction(async () => {
                 await actions.activateTenancy(contractForm);
-                setContractForm((current) => ({
-                  ...current,
-                  contractUploads: [],
-                }));
+                setContractForm((current) => ({ ...current, contractUploads: [] }));
                 setResidentMode('rooms');
               }, 'Stay started.')} />
             </View>
           ) : null}
-
           {!invitedTenancies.length ? (
             <EmptyState title="No move-ins ready" description="Assign a room first." />
           ) : null}
@@ -1014,15 +1351,23 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
           {collectionWatch.length ? (
             <View style={styles.stack}>
               {collectionWatch.map((invoice) => (
-                <View key={invoice.id} style={styles.listCard}>
-                  <InlineGroup>
-                    <Text style={styles.listTitle}>Room {invoice.roomLabel}</Text>
+                <View key={invoice.id} style={styles.ledgerCard}>
+                  <View style={styles.ledgerCardHeader}>
+                    <View>
+                      <Text style={styles.ledgerCardRoom}>Room {invoice.roomLabel}</Text>
+                      <Text style={styles.ledgerCardTenant}>{invoice.tenantName}</Text>
+                    </View>
                     <StatusBadge label={invoice.derivedStatus} />
-                  </InlineGroup>
-                  <Text style={styles.listText}>{invoice.tenantName} | {formatMonth(invoice.month)} | {invoice.dueWindow}</Text>
-                  <KeyValueRow label="Total" value={formatCurrency(invoice.totalAmount)} />
-                  <KeyValueRow label="Electricity" value={formatCurrency(invoice.electricityCharge)} />
-                  <KeyValueRow label="Reminder" value={invoice.reminderState} />
+                  </View>
+                  <View style={styles.ledgerAmountRow}>
+                    <Text style={styles.ledgerAmount}>{formatCurrency(invoice.totalAmount)}</Text>
+                    <Text style={styles.ledgerDueWindow}>{invoice.dueWindow}</Text>
+                  </View>
+                  <View style={styles.ledgerMeta}>
+                    <Text style={styles.ledgerMetaText}>{formatMonth(invoice.month)}</Text>
+                    <Text style={styles.ledgerMetaDivider}>·</Text>
+                    <Text style={styles.ledgerMetaText}>{invoice.reminderState}</Text>
+                  </View>
                 </View>
               ))}
             </View>
@@ -1047,89 +1392,37 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                   state.meterReadings.find((reading) => reading.invoiceId === submission.invoiceId) || null;
 
                 return (
-                  <View key={submission.id} style={styles.listCard}>
-                    <InlineGroup>
-                      <Text style={styles.listTitle}>Room {room?.label || '-'}</Text>
-                      <StatusBadge label={submission.status} />
-                    </InlineGroup>
-                    <Text style={styles.listText}>
-                      {tenant?.fullName || 'Tenant'} | {invoice ? formatMonth(invoice.month) : '-'} | due{' '}
-                      {invoice ? formatDate(invoice.dueDate) : '-'}
-                    </Text>
-                    <MetricRow
-                      items={[
-                        { label: 'Total', value: invoice ? formatCurrency(invoice.totalAmount) : '-' },
-                        { label: 'Rent', value: invoice ? formatCurrency(invoice.baseRent) : '-' },
-                        {
-                          label: 'Electricity',
-                          value: invoice ? formatCurrency(invoice.electricityCharge) : '-',
-                        },
-                      ]}
-                    />
-                    {meterReading ? (
-                      <>
-                        <KeyValueRow
-                          label="Meter reading"
-                          value={`${meterReading.openingReading} to ${meterReading.closingReading}`}
-                        />
-                        <KeyValueRow
-                          label="Units used"
-                          value={String(meterReading.closingReading - meterReading.openingReading)}
-                        />
-                      </>
-                    ) : null}
-                    <KeyValueRow label="UTR" value={submission.utr} />
-                    <UploadPreview
-                      title="Meter photo"
-                      subtitle={meterReading?.photoLabel || 'Uploaded meter proof'}
-                      uri={resolveUploadUrl(meterReading?.photoLabel)}
-                    />
-                    <UploadPreview
-                      title="Payment proof"
-                      subtitle={submission.screenshotLabel}
-                      uri={resolveUploadUrl(submission.screenshotLabel)}
-                    />
-                    <InlineGroup>
-                      <PrimaryButton
-                        label="Approve"
-                        onPress={() =>
-                          handleAction(
-                            () => actions.reviewPayment({ submissionId: submission.id, decision: 'APPROVE' }),
-                            'Approved.',
-                          )
-                        }
-                      />
-                      <PrimaryButton
-                        label="Reject"
-                        tone="danger"
-                        onPress={() =>
-                          handleAction(
-                            () => actions.reviewPayment({ submissionId: submission.id, decision: 'REJECT' }),
-                            'Rejected.',
-                          )
-                        }
-                      />
-                    </InlineGroup>
-                  </View>
+                  <PaymentReviewCard
+                    key={submission.id}
+                    submission={submission}
+                    invoice={invoice}
+                    tenant={tenant}
+                    room={room}
+                    meterReading={meterReading}
+                    onApprove={() =>
+                      handleAction(
+                        () => actions.reviewPayment({ submissionId: submission.id, decision: 'APPROVE' }),
+                        'Approved.',
+                      )
+                    }
+                    onReject={() =>
+                      handleAction(
+                        () => actions.reviewPayment({ submissionId: submission.id, decision: 'REJECT' }),
+                        'Rejected.',
+                      )
+                    }
+                  />
                 );
               })}
             </View>
           ) : (
-            <EmptyState
-              title="No approvals"
-              description="Nothing pending."
-            />
+            <EmptyState title="No approvals" description="Nothing pending." />
           )}
         </View>
       );
     }
 
-    return (
-      <EmptyState
-        title="No rent activity"
-        description="Nothing here yet."
-      />
-    );
+    return <EmptyState title="No rent activity" description="Nothing here yet." />;
   };
 
   const renderProfileContent = () => {
@@ -1139,7 +1432,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
           <Field label="Property name" value={propertyForm.name} onChangeText={(value) => setPropertyForm((current) => ({ ...current, name: value }))} />
           <Field label="Address" value={propertyForm.address} onChangeText={(value) => setPropertyForm((current) => ({ ...current, address: value }))} multiline />
           <Field label="Manager name" value={propertyForm.managerName} onChangeText={(value) => setPropertyForm((current) => ({ ...current, managerName: value }))} />
-          <Field label="Manager phone" value={propertyForm.managerPhone} onChangeText={(value) => setPropertyForm((current) => ({ ...current, managerPhone: value }))} keyboardType="phone-pad" />
+          <Field label="Manager phone" value={propertyForm.managerPhone} onChangeText={(value) => setPropertyForm((current) => ({ ...current, managerPhone: value }))} keyboardType="phone-pad" autoComplete="tel" />
           <Field label="Default electricity rate" value={propertyForm.defaultTariff} onChangeText={(value) => setPropertyForm((current) => ({ ...current, defaultTariff: value }))} keyboardType="decimal-pad" />
           <PrimaryButton label="Save property" onPress={() => handleAction(() => actions.updateProperty({ ...propertyForm, defaultTariff: Number(propertyForm.defaultTariff) }), 'Property saved.')} />
         </>
@@ -1157,12 +1450,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       );
     }
 
-    return (
-      <EmptyState
-        title="Room setup is in Rooms"
-        description="Use the Rooms tab."
-      />
-    );
+    return <EmptyState title="Room setup is in Rooms" description="Use the Rooms tab." />;
   };
 
   if (!state.property) {
@@ -1171,454 +1459,279 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
   return (
     <View style={styles.screenWrap}>
-    <ScreenSurface
-      hero={
-        <PageHeader
-          eyebrow={heroCopy.eyebrow}
-          title={heroCopy.title}
-          subtitle={heroCopy.subtitle}
-          highlights={heroCopy.highlights}
-        />
-      }
-      bottomBar={<TabStrip tabs={ownerTabs} activeTab={activeTab} onChange={setActiveTab} />}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshAction.isLoading}
-          onRefresh={() => refreshAction.run().catch(() => {})}
-          colors={[palette.accent]}
-          tintColor={palette.accent}
-        />
-      }
-    >
-      {state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
+      <ScreenSurface
+        hero={
+          <PageHeader
+            eyebrow={heroCopy.eyebrow}
+            title={heroCopy.title}
+            subtitle={heroCopy.subtitle}
+            highlights={heroCopy.highlights}
+          />
+        }
+        bottomBar={<TabStrip tabs={ownerTabs} activeTab={activeTab} onChange={setActiveTab} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshAction.isLoading}
+            onRefresh={() => refreshAction.run().catch(() => {})}
+            colors={[palette.accent]}
+            tintColor={palette.accent}
+          />
+        }
+      >
+        {state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
 
-      {activeTab === 'home' ? (
-        <>
-          {!isSetupTourComplete ? (
-            <SetupTourCard steps={setupTourSteps} onOpen={openTourStep} />
-          ) : null}
-          <SectionCard title="Snapshot" tone="soft">
-            <MetricRow items={[{ label: 'Living now', value: summary.livingNow }, { label: 'Empty rooms', value: summary.availableRooms }, { label: 'Leaving soon', value: summary.leavingSoon }, { label: 'Unpaid', value: summary.unpaidNow }]} />
-          </SectionCard>
-          <SectionCard title="Queue">
+        {/* ── HOME ── */}
+        {activeTab === 'home' ? (
+          <>
+            {/* Animated stat tiles */}
+            <View style={styles.statRow}>
+              <AnimatedStatTile label="Living now" value={summary.livingNow} delay={0} />
+              <AnimatedStatTile label="Open rooms" value={summary.availableRooms} delay={60} />
+              <AnimatedStatTile label="Unpaid" value={summary.unpaidNow} accent={summary.unpaidNow > 0} delay={120} />
+              <AnimatedStatTile label="Approvals" value={summary.finalApprovals} accent={summary.finalApprovals > 0} delay={180} />
+            </View>
+
+            {!isSetupTourComplete ? (
+              <SetupTourCard steps={setupTourSteps} onOpen={openTourStep} />
+            ) : null}
+
             {ownerQueue.length ? (
-              <View style={styles.stack}>
-                {ownerQueue.map((item) => (
-                  <QueueItemCard key={item.title} item={item} />
+              <SectionCard title="Action queue">
+                <View style={styles.stack}>
+                  {ownerQueue.map((item, index) => (
+                    <AnimatedQueueItem key={item.title} item={item} index={index} />
+                  ))}
+                </View>
+              </SectionCard>
+            ) : (
+              <SectionCard title="All clear">
+                <EmptyState title="No urgent work" description="Everything is up to date." />
+              </SectionCard>
+            )}
+
+            <SectionCard title="Property info">
+              <KeyValueRow label="Payout UPI" value={upiId} />
+              <KeyValueRow label="Electricity rate" value={`₹${defaultTariff}/unit`} />
+              <KeyValueRow label="Pending approvals" value={String(summary.finalApprovals)} />
+              <KeyValueRow label="Leaving soon" value={String(summary.leavingSoon)} />
+            </SectionCard>
+          </>
+        ) : null}
+
+        {/* ── ROOMS ── */}
+        {activeTab === 'rooms' ? (
+          <>
+            <SectionCard title="Move-in pipeline">
+              <View style={styles.pipelineWrap}>
+                {moveInPipelineActions.map((action) => (
+                  <AnimatedPipelineStep
+                    key={action.key}
+                    action={action}
+                    isActive={residentMode === action.key}
+                    onPress={action.onPress}
+                  />
                 ))}
               </View>
-            ) : (
-              <EmptyState title="No urgent work" description="All quiet." />
-            )}
-          </SectionCard>
-          <SectionCard title="Property">
-            <KeyValueRow label="Payout UPI" value={upiId} />
-            <KeyValueRow label="Electricity rate" value={`${defaultTariff}/unit`} />
-            <KeyValueRow label="Final approvals waiting" value={String(summary.finalApprovals)} />
-          </SectionCard>
-        </>
-      ) : null}
+            </SectionCard>
 
-      {activeTab === 'rooms' ? (
-        <>
-          <SectionCard title="Move-in pipeline">
-            <View style={styles.pipelineWrap}>
-              {moveInPipelineActions.map((action) => (
-                <PipelineStepCard
-                  key={action.key}
-                  action={action}
-                  isActive={residentMode === action.key}
-                  onPress={action.onPress}
-                />
-              ))}
-            </View>
-          </SectionCard>
+            <SectionCard
+              title={residentSectionCopy[residentMode].title}
+              tone={['inventory', 'invite', 'activate'].includes(residentMode) ? 'accent' : 'default'}
+            >
+              <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
+            </SectionCard>
 
-          <SectionCard
-            title={residentSectionCopy[residentMode].title}
-            subtitle={residentSectionCopy[residentMode].subtitle}
-            tone={['inventory', 'invite', 'activate'].includes(residentMode) ? 'accent' : 'default'}
-          >
-            <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
-          </SectionCard>
+            <SectionCard title="Manage stays">
+              <View style={styles.managementGrid}>
+                {roomManagementActions.map((action) => (
+                  <ManagementActionCard
+                    key={action.key}
+                    action={action}
+                    isActive={residentMode === action.key}
+                  />
+                ))}
+              </View>
+            </SectionCard>
+          </>
+        ) : null}
 
-          <SectionCard title="Manage stays">
-            <View style={styles.managementGrid}>
-              {roomManagementActions.map((action) => {
-                const isActive = residentMode === action.key;
+        {/* ── RENT ── */}
+        {activeTab === 'rent' ? (
+          <>
+            <RentFocusHero
+              title={rentFocus.title}
+              description={rentFocus.description}
+              actionLabel={rentFocus.actionLabel}
+              onPress={rentFocus.onPress}
+              isAllClear={rentFocus.isAllClear}
+            />
 
-                return (
-                  <View key={action.key} style={[styles.managementCard, isActive && styles.managementCardActive]}>
-                    <View style={styles.managementCopy}>
-                      <InlineGroup>
-                        <Text style={styles.managementTitle}>{action.title}</Text>
-                        {isActive ? <StatusBadge label="OPEN" /> : null}
-                      </InlineGroup>
-                      {action.description ? <Text style={styles.managementDescription}>{action.description}</Text> : null}
-                      {action.meta ? <Text style={styles.managementMeta}>{action.meta}</Text> : null}
-                    </View>
-                    <PrimaryButton
-                      label={isActive ? 'Open' : 'Go'}
-                      tone={isActive ? 'primary' : 'secondary'}
-                      compact
-                      onPress={action.onPress}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          </SectionCard>
-        </>
-      ) : null}
+            <SectionCard title="Rent sections">
+              <View style={styles.stack}>
+                {[
+                  {
+                    key: 'ledger',
+                    title: 'Track dues',
+                    meta: overdueInvoices.length
+                      ? `${overdueInvoices.length} overdue`
+                      : dueInvoices.length
+                        ? `${dueInvoices.length} due`
+                        : 'All current',
+                    onPress: () => setRentMode('ledger'),
+                  },
+                  {
+                    key: 'payment-review',
+                    title: 'Final approvals',
+                    meta: pendingSubmissions.length ? `${pendingSubmissions.length} waiting` : 'Nothing waiting',
+                    onPress: () => setRentMode('payment-review'),
+                  },
+                ].map((action) => (
+                  <ManagementActionCard
+                    key={action.key}
+                    action={action}
+                    isActive={rentMode === action.key}
+                  />
+                ))}
+              </View>
+            </SectionCard>
 
-      {activeTab === 'rent' ? (
-        <>
-          <FocusCard
-            eyebrow="Rent"
-            title={rentFocus.title}
-            description={rentFocus.description}
-            tone="soft"
-            actionLabel={rentFocus.actionLabel}
-            onAction={rentFocus.onPress}
-          />
-          <SectionCard title="Rent">
-            <View style={styles.stack}>
-              {rentActions.map((action) => {
-                const isActive = rentMode === action.key;
+            <SectionCard
+              title={rentMode === 'ledger' ? 'Track dues' : 'Final approvals'}
+              tone={pendingSubmissions.length || overdueInvoices.length ? 'accent' : 'default'}
+            >
+              {renderRentContent()}
+            </SectionCard>
+          </>
+        ) : null}
 
-                return (
-                  <View key={action.key} style={[styles.residentActionCard, isActive && styles.residentActionCardActive]}>
-                    <View style={[styles.residentActionCopy, isActive && styles.residentActionCopyActive]}>
-                      <InlineGroup>
-                        <Text style={styles.residentActionTitle}>{action.title}</Text>
-                        {isActive ? <StatusBadge label="OPEN" /> : null}
-                      </InlineGroup>
-                      {action.description ? <Text style={styles.residentActionDescription}>{action.description}</Text> : null}
-                      {(action.status || action.meta) ? (
-                        <InlineGroup>
-                          {action.status ? <Text style={styles.residentActionMeta}>{action.status}</Text> : null}
-                          {action.status && action.meta ? <Text style={styles.residentActionDivider}>|</Text> : null}
-                          {action.meta ? <Text style={styles.residentActionMeta}>{action.meta}</Text> : null}
-                        </InlineGroup>
-                      ) : null}
-                      {isActive ? (
-                        <View style={styles.residentActionPanel}>
-                          <View style={styles.residentPanelBody}>{renderRentContent()}</View>
-                        </View>
-                      ) : null}
-                    </View>
-                    <PrimaryButton
-                      label={isActive ? 'Open' : 'Choose'}
-                      tone={isActive ? 'primary' : 'secondary'}
-                      compact
-                      onPress={action.onPress}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          </SectionCard>
-        </>
-      ) : null}
+        {/* ── PROFILE ── */}
+        {activeTab === 'profile' ? (
+          <>
+            <SectionCard title="Account">
+              <KeyValueRow label="Property" value={propertyName} />
+              <KeyValueRow label="Manager" value={managerName || '-'} />
+              <KeyValueRow label="Phone" value={managerPhone || '-'} />
+              <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
+            </SectionCard>
+            <SectionCard title="Settings">
+              <ChoiceChips options={profileModes} value={profileMode} onChange={setProfileMode} />
+              {renderProfileContent()}
+            </SectionCard>
+          </>
+        ) : null}
+      </ScreenSurface>
 
-      {activeTab === 'profile' ? (
-        <>
-          <SectionCard title="Profile">
-            <KeyValueRow label="Property" value={propertyName} />
-            <KeyValueRow label="Manager" value={managerName || '-'} />
-            <KeyValueRow label="Phone" value={managerPhone || '-'} />
-            <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
-          </SectionCard>
-          <SectionCard title="Settings">
-            <ChoiceChips options={profileModes} value={profileMode} onChange={setProfileMode} />
-            {renderProfileContent()}
-          </SectionCard>
-        </>
-      ) : null}
-    </ScreenSurface>
-    <TempPasswordShareModal
-      visible={Boolean(shareDetails)}
-      onDismiss={() => setShareDetails(null)}
-      tempPassword={shareDetails?.tempPassword}
-      recipientName={shareDetails?.recipientName}
-      recipientPhone={shareDetails?.recipientPhone}
-      role={shareDetails?.role}
-      inviterName={state.owner?.name || 'Owner'}
-    />
+      <TempPasswordShareModal
+        visible={Boolean(shareDetails)}
+        onDismiss={() => setShareDetails(null)}
+        tempPassword={shareDetails?.tempPassword}
+        recipientName={shareDetails?.recipientName}
+        recipientPhone={shareDetails?.recipientPhone}
+        role={shareDetails?.role}
+        inviterName={state.owner?.name || 'Owner'}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screenWrap: {
-    flex: 1,
-  },
-  stack: {
-    gap: 12,
-    alignSelf: 'stretch',
-    width: '100%',
-  },
-  listCard: {
-    alignSelf: 'stretch',
-    width: '100%',
-    padding: 16,
-    borderRadius: 24,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-    gap: 10,
-  },
-  listTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '800',
-    color: palette.ink,
-  },
-  listText: {
-    color: palette.inkSoft,
-    lineHeight: 21,
-  },
-  roomStatusBoard: {
-    gap: 12,
-    alignSelf: 'stretch',
-    width: '100%',
-  },
-  roomStatusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  roomStatusTitle: {
-    color: palette.ink,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '900',
-  },
-  roomStatusCount: {
-    color: palette.muted,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  roomStatusLegend: {
+  screenWrap: { flex: 1 },
+
+  // ── Animated stat tiles ──
+  statRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-  },
-  roomStatusLegendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  roomStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  roomStatusLegendText: {
-    color: palette.inkSoft,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '700',
-  },
-  roomTileGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
     alignSelf: 'stretch',
-    width: '100%',
   },
-  roomTile: {
-    flexGrow: 1,
+  statTile: {
     flexBasis: '47%',
-    minWidth: 124,
-    padding: 10,
-    borderRadius: 8,
+    flexGrow: 1,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: palette.surface,
     borderWidth: 1,
-    gap: 5,
+    borderColor: palette.border,
+    gap: 4,
+    overflow: 'hidden',
+    ...elevation.e1,
   },
-  roomTileHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+  statTileAccent: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
+    overflow: 'hidden',
   },
-  roomTileNumber: {
+  statTileValue: {
+    fontSize: 28,
+    fontWeight: '900',
     color: palette.ink,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '900',
+    letterSpacing: -0.5,
   },
-  roomTileStatus: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: '900',
+  statTileValueAccent: { color: palette.white },
+  statTileLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: palette.muted,
     textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  roomTileTenant: {
-    color: palette.inkSoft,
+  statTileLabelAccent: { color: 'rgba(255,255,255,0.82)' },
+
+  // ── Setup tour card ──
+  tourCard: {
+    borderRadius: 24,
+    padding: 20,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    overflow: 'hidden',
+    ...elevation.e2,
+  },
+  tourCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  tourCardEyebrow: {
     fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '700',
-  },
-  roomTileAmount: {
-    color: palette.ink,
-    fontSize: 12,
-    lineHeight: 16,
     fontWeight: '800',
-  },
-  roomStatusEmpty: {
-    color: palette.muted,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  pipelineWrap: {
-    gap: 10,
-    alignSelf: 'stretch',
-    width: '100%',
-  },
-  pipelineStep: {
-    alignSelf: 'stretch',
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  pipelineStepActive: {
-    backgroundColor: palette.surfaceTint,
-    borderColor: '#AEEBDD',
-  },
-  pipelineStepNumber: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#DFFBF6',
-  },
-  pipelineStepNumberText: {
     color: palette.accentDeep,
-    fontSize: 14,
+    textTransform: 'uppercase',
+    letterSpacing: 0.9,
+  },
+  tourCardTitle: {
+    fontSize: 20,
     fontWeight: '900',
-  },
-  pipelineStepCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 4,
-  },
-  pipelineStepTitle: {
-    flexShrink: 1,
     color: palette.ink,
-    fontSize: 15,
-    fontWeight: '900',
-    lineHeight: 20,
+    marginTop: 2,
   },
-  pipelineStepDescription: {
-    color: palette.inkSoft,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  pipelineStepMeta: {
-    color: palette.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 17,
-  },
-  managementGrid: {
-    gap: 10,
-    alignSelf: 'stretch',
-    width: '100%',
-  },
-  managementCard: {
-    alignSelf: 'stretch',
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  managementCardActive: {
+  tourProgressCount: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
     backgroundColor: palette.surfaceTint,
+    borderWidth: 1,
     borderColor: '#AEEBDD',
   },
-  managementCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 4,
-  },
-  managementTitle: {
-    flexShrink: 1,
-    color: palette.ink,
-    fontSize: 15,
-    fontWeight: '900',
-    lineHeight: 20,
-  },
-  managementDescription: {
-    color: palette.inkSoft,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  managementMeta: {
-    color: palette.muted,
+  tourProgressCountText: {
     fontSize: 12,
     fontWeight: '800',
+    color: palette.accentDeep,
   },
-  queueItem: {
-    alignSelf: 'stretch',
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
+  tourProgressBar: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: palette.surfaceMuted,
+    overflow: 'hidden',
   },
-  queueCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 5,
+  tourProgressFill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: palette.accent,
   },
-  queueTitle: {
-    flexShrink: 1,
-    color: palette.ink,
-    fontSize: 15,
-    fontWeight: '900',
-    lineHeight: 20,
-  },
-  queueDescription: {
-    color: palette.inkSoft,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  queueMeta: {
-    color: palette.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 17,
-  },
-  tourList: {
-    alignSelf: 'stretch',
-    width: '100%',
-    gap: 10,
-  },
+  tourList: { gap: 10, alignSelf: 'stretch', width: '100%' },
   tourRow: {
-    alignSelf: 'stretch',
-    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -1644,77 +1757,322 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: '900',
   },
-  tourStepDotTextDone: {
-    color: palette.white,
-    fontSize: 9,
-  },
-  tourStepCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
+  tourStepDotTextDone: { color: palette.white, fontSize: 13 },
+  tourStepCopy: { flex: 1, minWidth: 0 },
   tourStepTitle: {
-    flex: 1,
     color: palette.ink,
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: '900',
+    fontWeight: '800',
   },
-  tourStepCaption: {
-    color: palette.inkSoft,
+  tourStepTitleDone: { color: palette.muted, textDecorationLine: 'line-through' },
+  tourStepCaption: { color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontWeight: '700' },
+
+  // ── Queue items ──
+  queueItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 12,
+    overflow: 'hidden',
+  },
+  queueCopy: { flex: 1, minWidth: 0, gap: 4 },
+  queueTitle: { flexShrink: 1, color: palette.ink, fontSize: 15, fontWeight: '900', lineHeight: 20 },
+  queueDescription: { color: palette.inkSoft, fontSize: 13, lineHeight: 19 },
+  queueMeta: { color: palette.muted, fontSize: 12, fontWeight: '700', lineHeight: 17 },
+  queueChevron: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: palette.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  queueChevronText: { fontSize: 18, color: palette.accentDeep, fontWeight: '700', lineHeight: 22 },
+
+  // ── Pipeline steps ──
+  pipelineWrap: { gap: 10, alignSelf: 'stretch', width: '100%' },
+  pipelineStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    overflow: 'hidden',
+  },
+  pipelineStepActive: {
+    borderColor: '#AEEBDD',
+  },
+  pipelineStepNumber: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DFFBF6',
+  },
+  pipelineStepNumberActive: {
+    backgroundColor: palette.accent,
+  },
+  pipelineStepNumberText: { color: palette.accentDeep, fontSize: 14, fontWeight: '900' },
+  pipelineStepNumberTextActive: { color: palette.white },
+  pipelineStepCopy: { flex: 1, minWidth: 0, gap: 4 },
+  pipelineStepTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  pipelineStepTitle: { color: palette.ink, fontSize: 15, fontWeight: '900', lineHeight: 20 },
+  pipelineStepTitleActive: { color: palette.accentDeep },
+  pipelineStepMeta: { color: palette.muted, fontSize: 12, fontWeight: '800', lineHeight: 17 },
+  pipelineChevron: { fontSize: 22, color: palette.muted, fontWeight: '700', lineHeight: 26 },
+  pipelineChevronActive: { color: palette.accentDeep },
+  openBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: palette.accentSoft,
+  },
+  openBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: palette.accentDeep,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+
+  // ── Room tiles ──
+  roomStatusBoard: { gap: 12, alignSelf: 'stretch', width: '100%' },
+  roomStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  roomStatusTitle: { color: palette.ink, fontSize: 15, lineHeight: 20, fontWeight: '900' },
+  roomStatusCount: {
+    color: palette.muted,
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: '700',
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
-  residentActionCard: {
+  roomStatusLegend: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  roomStatusLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  roomStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  roomStatusLegendText: { color: palette.inkSoft, fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  roomStatusEmpty: { color: palette.muted, fontSize: 13, lineHeight: 19 },
+  roomTileGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
     alignSelf: 'stretch',
     width: '100%',
+  },
+  roomTileWrap: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    minWidth: 124,
+  },
+  roomTilePressable: {
+    padding: 12,
+    borderRadius: 14,
+    gap: 6,
+    overflow: 'hidden',
+    minHeight: 80,
+  },
+  roomTileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  roomTileNumber: { color: palette.ink, fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  roomTileStatusPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  roomTileStatusText: { fontSize: 9, fontWeight: '900', color: palette.white, textTransform: 'uppercase', letterSpacing: 0.4 },
+  roomTileTenant: { color: palette.inkSoft, fontSize: 11, lineHeight: 15, fontWeight: '700' },
+  roomTileAmount: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+
+  // ── Rent focus hero ──
+  rentFocusCard: {
+    borderRadius: 24,
+    padding: 20,
+    gap: 12,
+    overflow: 'hidden',
+    minHeight: 140,
+    justifyContent: 'space-between',
+    ...elevation.e3,
+  },
+  heroShapeLeft: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    left: -28,
+    top: 12,
+  },
+  heroShapeRight: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    right: -20,
+    top: 30,
+  },
+  rentFocusContent: { gap: 8, zIndex: 1 },
+  rentFocusCheckCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rentFocusCheckText: { fontSize: 20, color: palette.white, fontWeight: '900' },
+  rentFocusTitle: { fontSize: 22, fontWeight: '900', color: palette.white, letterSpacing: -0.3 },
+  rentFocusDescription: { fontSize: 14, color: 'rgba(255,255,255,0.80)', lineHeight: 20 },
+  rentFocusCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    zIndex: 1,
+  },
+  rentFocusCtaText: { fontSize: 14, fontWeight: '800', color: 'rgba(255,255,255,0.90)' },
+  rentFocusCtaChevron: { fontSize: 20, color: 'rgba(255,255,255,0.90)', fontWeight: '700', lineHeight: 24 },
+
+  // ── Management action cards ──
+  managementGrid: { gap: 10, alignSelf: 'stretch', width: '100%' },
+  managementCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    overflow: 'hidden',
+  },
+  managementCardActive: { borderColor: '#AEEBDD' },
+  managementCopy: { flex: 1, minWidth: 0, gap: 4 },
+  managementTitle: { flexShrink: 1, color: palette.ink, fontSize: 15, fontWeight: '900', lineHeight: 20 },
+  managementMeta: { color: palette.muted, fontSize: 12, fontWeight: '800' },
+
+  // ── Payment review cards ──
+  paymentCard: {
+    borderRadius: 24,
+    padding: 20,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: '#C8EEE8',
+    overflow: 'hidden',
+    ...elevation.e2,
+  },
+  paymentCardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 12,
-    padding: 18,
+    gap: 10,
+  },
+  paymentCardHeaderLeft: { gap: 2 },
+  paymentCardRoom: { fontSize: 18, fontWeight: '900', color: palette.ink },
+  paymentCardTenant: { fontSize: 13, fontWeight: '700', color: palette.inkSoft },
+  paymentCardBadgeWrap: {},
+  paymentAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.surfaceMuted,
+    borderRadius: 16,
+    padding: 14,
+    gap: 0,
+  },
+  paymentAmountBlock: { flex: 1, alignItems: 'center', gap: 4 },
+  paymentAmountDivider: { width: 1, height: 36, backgroundColor: palette.border },
+  paymentAmountLabel: { fontSize: 11, fontWeight: '700', color: palette.muted, textTransform: 'uppercase', letterSpacing: 0.6 },
+  paymentAmountValue: { fontSize: 16, fontWeight: '900', color: palette.ink },
+  paymentMeta: { gap: 6 },
+  paymentMetaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  paymentMetaLabel: { fontSize: 13, fontWeight: '700', color: palette.muted },
+  paymentMetaValue: { fontSize: 13, fontWeight: '700', color: palette.ink, flexShrink: 1, textAlign: 'right' },
+  paymentActions: { flexDirection: 'row', gap: 10 },
+  paymentApproveBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    ...elevation.e1,
+  },
+  paymentApproveBtnText: { color: palette.white, fontWeight: '800', fontSize: 15 },
+  paymentRejectBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF0EE',
+    borderWidth: 1,
+    borderColor: '#F2B8AE',
+  },
+  paymentRejectBtnText: { color: '#B42318', fontWeight: '800', fontSize: 15 },
+
+  // ── Ledger cards ──
+  ledgerCard: {
+    padding: 16,
+    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 10,
+  },
+  ledgerCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  ledgerCardRoom: { fontSize: 16, fontWeight: '900', color: palette.ink },
+  ledgerCardTenant: { fontSize: 13, fontWeight: '700', color: palette.inkSoft, marginTop: 2 },
+  ledgerAmountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  ledgerAmount: { fontSize: 22, fontWeight: '900', color: palette.ink },
+  ledgerDueWindow: { fontSize: 13, fontWeight: '700', color: palette.muted },
+  ledgerMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ledgerMetaText: { fontSize: 12, fontWeight: '700', color: palette.muted },
+  ledgerMetaDivider: { color: palette.mutedSoft, fontSize: 12 },
+
+  // ── Room list cards ──
+  listCard: {
+    alignSelf: 'stretch',
+    width: '100%',
+    padding: 16,
     borderRadius: 22,
     backgroundColor: palette.surface,
     borderWidth: 1,
     borderColor: palette.border,
+    gap: 10,
   },
-  residentActionCardActive: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-    backgroundColor: palette.surfaceTint,
-    borderColor: '#BFEADE',
-  },
-  residentActionCopy: {
-    flex: 1,
-    gap: 6,
-  },
-  residentActionCopyActive: {
+  listCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  listTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: palette.ink },
+
+  // ── Forms & misc ──
+  stack: { gap: 12, alignSelf: 'stretch', width: '100%' },
+  inlineSection: {
     alignSelf: 'stretch',
     width: '100%',
+    gap: 14,
   },
-  residentActionTitle: {
-    flexShrink: 1,
-    color: palette.ink,
-    fontSize: 17,
-    fontWeight: '800',
-    lineHeight: 24,
-  },
-  residentActionDescription: {
-    color: palette.inkSoft,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  residentActionMeta: {
-    color: palette.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-  residentActionDivider: {
-    color: palette.mutedSoft,
-    fontSize: 12,
-    lineHeight: 18,
-  },
+  fullWidthAction: { alignSelf: 'stretch', width: '100%' },
   contractUploadBlock: {
     gap: 10,
     alignSelf: 'stretch',
@@ -1725,80 +2083,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
-  contractUploadTitle: {
-    color: palette.ink,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  contractUploadSubtitle: {
-    color: palette.inkSoft,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  contractUploadCard: {
-    gap: 8,
-    alignSelf: 'stretch',
-    width: '100%',
-  },
-  residentActionPanel: {
-    alignSelf: 'stretch',
-    width: '100%',
-    marginTop: 10,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: palette.border,
-    gap: 10,
-  },
-  residentPanelTitle: {
-    color: palette.ink,
-    fontSize: 16,
-    fontWeight: '800',
-    lineHeight: 22,
-  },
-  residentPanelSubtitle: {
-    color: palette.inkSoft,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  residentPanelBody: {
-    gap: 12,
-    alignSelf: 'stretch',
-    width: '100%',
-  },
-  inlineSection: {
-    alignSelf: 'stretch',
-    width: '100%',
-    gap: 14,
-    padding: 0,
-    borderRadius: 0,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-  },
-  fullWidthAction: {
-    alignSelf: 'stretch',
-    width: '100%',
-  },
-  inlineSectionTitle: {
-    color: palette.ink,
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '900',
-  },
-  inlineSectionSubtitle: {
-    color: palette.inkSoft,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  formPanel: {
-    alignSelf: 'stretch',
-    width: '100%',
-    gap: 14,
-    padding: 16,
-    borderRadius: 18,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
+  contractUploadTitle: { color: palette.ink, fontSize: 15, fontWeight: '800' },
+  contractUploadSubtitle: { color: palette.inkSoft, fontSize: 13, lineHeight: 20 },
+  contractUploadCard: { gap: 8, alignSelf: 'stretch', width: '100%' },
+  residentPanelBody: { gap: 12, alignSelf: 'stretch', width: '100%' },
   previewCard: {
     alignSelf: 'stretch',
     width: '100%',
@@ -1809,15 +2097,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
-  previewTitle: {
-    color: palette.ink,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  previewSubtitle: {
-    color: palette.inkSoft,
-    lineHeight: 20,
-  },
+  previewTitle: { color: palette.ink, fontSize: 15, fontWeight: '800' },
+  previewSubtitle: { color: palette.inkSoft, lineHeight: 20 },
   previewImage: {
     width: '100%',
     height: 190,
