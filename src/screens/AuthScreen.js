@@ -1,11 +1,25 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import Animated, {
+  Easing as RNEasing,
+  cancelAnimation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 
-import { Banner, Field, PrimaryButton, palette } from '../components/uiAirbnb';
+import { Banner, Field, PrimaryButton, palette, elevation } from '../components/uiAirbnb';
 import { CountryCodePicker } from '../components/CountryCodePicker';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { useAndroidBackHandler } from '../hooks/useAndroidBackHandler';
+import { spring as springTokens, haptic } from '../lib/motion';
 const {
   buildPhoneValidationMessage,
   DEFAULT_DIAL_CODE,
@@ -15,7 +29,7 @@ const {
 const ROLES = [
   { key: 'tenant', label: 'Tenant' },
   { key: 'owner', label: 'Owner' },
-  { key: 'super_admin', label: 'Super Admin' },
+  { key: 'super_admin', label: 'Admin' },
 ];
 
 const MODES = {
@@ -23,6 +37,106 @@ const MODES = {
   FORGOT_REQUEST: 'forgot-request',
   FORGOT_RESET: 'forgot-reset',
 };
+
+// Floating decorative shape with looped parallax
+function FloatingShape({ style, delay = 0, distance = 8, duration = 4400 }) {
+  const offset = useSharedValue(0);
+  useEffect(() => {
+    offset.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing: RNEasing.inOut(RNEasing.quad) }),
+          withTiming(0, { duration, easing: RNEasing.inOut(RNEasing.quad) }),
+        ),
+        -1,
+        false,
+      ),
+    );
+    return () => cancelAnimation(offset);
+  }, [delay, duration, offset]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { rotate: '45deg' },
+      { translateY: interpolate(offset.value, [0, 1], [0, -distance]) },
+      { translateX: interpolate(offset.value, [0, 1], [0, distance / 2]) },
+    ],
+  }));
+  return <Animated.View style={[style, animatedStyle]} pointerEvents="none" />;
+}
+
+// Role pill row with a sliding indicator
+function RolePicker({ value, onChange }) {
+  const [width, setWidth] = useState(0);
+  const activeIndex = ROLES.findIndex((r) => r.key === value);
+  const indicatorX = useSharedValue(0);
+
+  const padding = 6;
+  const tabWidth = width > 0 ? (width - padding * 2) / ROLES.length : 0;
+
+  useEffect(() => {
+    if (tabWidth > 0) {
+      indicatorX.value = withSpring(activeIndex * tabWidth, springTokens.indicator);
+    }
+  }, [activeIndex, tabWidth, indicatorX]);
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.value }],
+  }));
+
+  return (
+    <View style={styles.roleTrack} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+      {tabWidth > 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.roleIndicator,
+            { width: tabWidth, left: padding, top: padding, bottom: padding },
+            indicatorStyle,
+          ]}
+        />
+      ) : null}
+      {ROLES.map((option) => {
+        const isActive = option.key === value;
+        return (
+          <Pressable
+            key={option.key}
+            onPress={() => {
+              haptic.selection();
+              onChange(option.key);
+            }}
+            android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: false }}
+            style={styles.rolePill}
+          >
+            <Text style={[styles.rolePillText, isActive && styles.rolePillTextActive]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// Mode-content cross-fade — re-runs animation on mode change
+function ModeFader({ mode, children }) {
+  const opacity = useSharedValue(0);
+  const ty = useSharedValue(10);
+
+  useEffect(() => {
+    opacity.value = 0;
+    ty.value = 10;
+    opacity.value = withTiming(1, { duration: 240 });
+    ty.value = withSpring(0, springTokens.gentle);
+  }, [mode, opacity, ty]);
+
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: ty.value }],
+  }));
+  return <Animated.View style={style}>{children}</Animated.View>;
+}
 
 export function AuthScreen({
   onLogin,
@@ -44,6 +158,28 @@ export function AuthScreen({
   const passwordRef = useRef(null);
   const otpRef = useRef(null);
   const newPasswordRef = useRef(null);
+
+  // Logo entry
+  const logoOpacity = useSharedValue(0);
+  const logoScale = useSharedValue(0.8);
+  const cardOpacity = useSharedValue(0);
+  const cardTy = useSharedValue(24);
+
+  useEffect(() => {
+    logoOpacity.value = withTiming(1, { duration: 420 });
+    logoScale.value = withSpring(1, springTokens.bouncy);
+    cardOpacity.value = withDelay(120, withTiming(1, { duration: 420 }));
+    cardTy.value = withDelay(120, withSpring(0, springTokens.gentle));
+  }, [logoOpacity, logoScale, cardOpacity, cardTy]);
+
+  const logoStyle = useAnimatedStyle(() => ({
+    opacity: logoOpacity.value,
+    transform: [{ scale: logoScale.value }],
+  }));
+  const cardStyle = useAnimatedStyle(() => ({
+    opacity: cardOpacity.value,
+    transform: [{ translateY: cardTy.value }],
+  }));
 
   const resetForm = useCallback(() => {
     setPhone('');
@@ -71,16 +207,9 @@ export function AuthScreen({
     resetForm();
   };
 
-  // Hardware back: forgot-reset → forgot-request → login → default exit
   useAndroidBackHandler(() => {
-    if (mode === MODES.FORGOT_RESET) {
-      goToMode(MODES.FORGOT_REQUEST);
-      return true;
-    }
-    if (mode === MODES.FORGOT_REQUEST) {
-      goToMode(MODES.LOGIN);
-      return true;
-    }
+    if (mode === MODES.FORGOT_RESET) { goToMode(MODES.FORGOT_REQUEST); return true; }
+    if (mode === MODES.FORGOT_REQUEST) { goToMode(MODES.LOGIN); return true; }
     return false;
   });
 
@@ -105,6 +234,7 @@ export function AuthScreen({
     }
     setServerMessage(null);
     await onLogin(role, normalizedPhone, password);
+    haptic.success();
   });
 
   const forgotRequestAction = useAsyncAction(async () => {
@@ -134,7 +264,8 @@ export function AuthScreen({
     await onForgotPasswordReset(role, normalizedPhone, otp, newPassword);
     goToMode(MODES.LOGIN);
     setPassword('');
-    setServerMessage({ tone: 'info', text: 'Password updated. Please log in.' });
+    setServerMessage({ tone: 'success', text: 'Password updated. Please log in.' });
+    haptic.success();
   });
 
   const handleSubmit = async () => {
@@ -152,18 +283,16 @@ export function AuthScreen({
   const submitting = loginAction.isLoading || forgotRequestAction.isLoading || forgotResetAction.isLoading;
 
   const title =
-    mode === MODES.FORGOT_REQUEST
-      ? 'Reset password'
-      : mode === MODES.FORGOT_RESET
-        ? 'Enter OTP & new password'
-        : `${role === 'super_admin' ? 'Super admin' : role === 'owner' ? 'Owner' : 'Tenant'} sign in`;
+    mode === MODES.FORGOT_REQUEST ? 'Reset password'
+    : mode === MODES.FORGOT_RESET ? 'Verify & reset'
+    : `Welcome back`;
 
   const subtitle =
     mode === MODES.LOGIN
-      ? 'Use phone and password.'
+      ? `Sign in as ${role === 'super_admin' ? 'admin' : role === 'owner' ? 'owner' : 'tenant'}`
       : mode === MODES.FORGOT_REQUEST
-        ? 'We will send you a code via SMS.'
-        : 'Check your phone for the OTP.';
+        ? `We'll send a one-time code via SMS.`
+        : 'Enter the OTP and choose a new password.';
 
   const submitLabel =
     mode === MODES.LOGIN ? 'Log in' : mode === MODES.FORGOT_REQUEST ? 'Send OTP' : 'Update password';
@@ -171,58 +300,46 @@ export function AuthScreen({
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
-      <View style={styles.mobileShell}>
-        <View style={styles.hero}>
-          <View style={[styles.heroShape, styles.heroShapeLeft]} />
-          <View style={[styles.heroShape, styles.heroShapeCenter]} />
-          <View style={[styles.heroShape, styles.heroShapeRight]} />
-        </View>
+      <View style={styles.hero}>
+        <LinearGradient
+          colors={['#00D6B5', '#00B399', '#008B7A']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <FloatingShape style={[styles.heroShape, styles.heroShapeLeft]} delay={0} />
+        <FloatingShape style={[styles.heroShape, styles.heroShapeCenter]} delay={400} duration={5400} />
+        <FloatingShape style={[styles.heroShape, styles.heroShapeRight]} delay={800} duration={4800} />
+      </View>
 
-        <ScrollView
-          style={styles.sheet}
-          contentContainerStyle={styles.sheetContent}
-          bounces={false}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.logoBadge}>
-            <View style={styles.logoInner}>
-              <Text style={styles.logoPrimary}>RENT</Text>
-              <Text style={styles.logoSecondary}>AUTOMATION</Text>
-            </View>
+      <ScrollView
+        style={styles.sheet}
+        contentContainerStyle={styles.sheetContent}
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Animated.View style={[styles.logoBadge, logoStyle]}>
+          <LinearGradient
+            colors={['#FFFFFF', '#F2FBF8']}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={styles.logoInner}>
+            <Text style={styles.logoPrimary}>RENT</Text>
+            <Text style={styles.logoSecondary}>AUTOMATION</Text>
           </View>
+        </Animated.View>
 
-          <View style={styles.card}>
-            <Text style={styles.title}>{title}</Text>
-            <Text style={styles.subtitle}>{subtitle}</Text>
+        <Animated.View style={[styles.card, cardStyle]}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
 
-            <View style={styles.roleRow}>
-              {ROLES.map((option) => (
-                <Pressable
-                  key={option.key}
-                  onPress={() => handleRoleChange(option.key)}
-                  android_ripple={{ color: 'rgba(255,255,255,0.22)', borderless: false }}
-                  style={({ pressed }) => [
-                    styles.rolePill,
-                    role === option.key && styles.rolePillActive,
-                    pressed && styles.rolePillPressed,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.rolePillText,
-                      role === option.key && styles.rolePillTextActive,
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+          <RolePicker value={role} onChange={handleRoleChange} />
 
-            {serverMessage ? <Banner tone={serverMessage.tone} message={serverMessage.text} /> : null}
-            {!serverMessage && backendError ? <Banner tone="danger" message={backendError} /> : null}
+          {serverMessage ? <Banner tone={serverMessage.tone} message={serverMessage.text} /> : null}
+          {!serverMessage && backendError ? <Banner tone="danger" message={backendError} /> : null}
 
+          <ModeFader mode={mode}>
             <View style={styles.formBlock}>
               <CountryCodePicker
                 dialCode={countryDialCode}
@@ -265,7 +382,7 @@ export function AuthScreen({
                       setOtp(value);
                       if (fieldErrors.otp) setFieldErrors((c) => ({ ...c, otp: null }));
                     }}
-                    placeholder="6-digit OTP"
+                    placeholder="6-digit code"
                     keyboardType="number-pad"
                     autoComplete="sms-otp"
                     textContentType="oneTimeCode"
@@ -294,86 +411,77 @@ export function AuthScreen({
                 </>
               ) : null}
             </View>
+          </ModeFader>
 
-            <PrimaryButton
-              label={submitLabel}
-              onPress={handleSubmit}
-              loading={submitting || isBusy}
-              disabled={submitting || isBusy}
-            />
+          <PrimaryButton
+            label={submitLabel}
+            onPress={handleSubmit}
+            loading={submitting || isBusy}
+            disabled={submitting || isBusy}
+          />
 
-            {mode === MODES.LOGIN ? (
-              isTenant ? (
-                <View style={styles.footerLinkWrap}>
-                  <Text style={styles.footerText}>
-                    Forgot password? <Text style={styles.footerLinkText}>Ask your owner to reset it.</Text>
-                  </Text>
-                </View>
-              ) : (
-                <Pressable
-                  onPress={() => goToMode(MODES.FORGOT_REQUEST)}
-                  android_ripple={{ color: 'rgba(36,201,174,0.2)', borderless: true }}
-                  style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
-                >
-                  <Text style={styles.footerText}>
-                    <Text style={styles.footerLinkText}>Forgot password?</Text>
-                  </Text>
-                </Pressable>
-              )
+          {mode === MODES.LOGIN ? (
+            isTenant ? (
+              <View style={styles.footerLinkWrap}>
+                <Text style={styles.footerText}>
+                  Forgot password?  <Text style={styles.footerLinkText}>Ask your owner.</Text>
+                </Text>
+              </View>
             ) : (
               <Pressable
-                onPress={() => goToMode(MODES.LOGIN)}
-                android_ripple={{ color: 'rgba(36,201,174,0.2)', borderless: true }}
+                onPress={() => goToMode(MODES.FORGOT_REQUEST)}
+                android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: true }}
                 style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
               >
                 <Text style={styles.footerText}>
-                  <Text style={styles.footerLinkText}>Back to login</Text>
+                  <Text style={styles.footerLinkText}>Forgot password?</Text>
                 </Text>
               </Pressable>
-            )}
-          </View>
-        </ScrollView>
-      </View>
+            )
+          ) : (
+            <Pressable
+              onPress={() => goToMode(MODES.LOGIN)}
+              android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: true }}
+              style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
+            >
+              <Text style={styles.footerText}>
+                <Text style={styles.footerLinkText}>← Back to login</Text>
+              </Text>
+            </Pressable>
+          )}
+        </Animated.View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#DDE9E6',
-  },
-  mobileShell: {
-    flex: 1,
-    width: '100%',
-    backgroundColor: '#24C9AE',
-  },
+  root: { flex: 1, backgroundColor: palette.background },
   hero: {
-    height: 210,
-    backgroundColor: '#24C9AE',
+    height: 240,
     overflow: 'hidden',
   },
   heroShape: {
     position: 'absolute',
-    width: 140,
-    height: 140,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    transform: [{ rotate: '45deg' }],
+    width: 160,
+    height: 160,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
-  heroShapeLeft: { left: -12, top: 40 },
-  heroShapeCenter: { left: 150, top: 22 },
-  heroShapeRight: { right: -18, top: 52 },
+  heroShapeLeft: { left: -36, top: 36 },
+  heroShapeCenter: { left: 140, top: 0 },
+  heroShapeRight: { right: -40, top: 60 },
   sheet: {
     flex: 1,
-    marginTop: -34,
-    backgroundColor: '#EEF4F3',
-    borderTopLeftRadius: 34,
-    borderTopRightRadius: 34,
+    marginTop: -42,
+    backgroundColor: palette.background,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
   },
   sheetContent: {
     paddingHorizontal: 22,
     paddingTop: 26,
-    paddingBottom: 40,
+    paddingBottom: 48,
     gap: 24,
   },
   logoBadge: {
@@ -381,61 +489,67 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 28,
-    borderWidth: 2,
-    borderColor: '#C8F3EC',
+    borderWidth: 1,
+    borderColor: '#D8F1EA',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    overflow: 'hidden',
+    ...elevation.e2,
   },
   logoInner: { alignItems: 'center', gap: 2 },
-  logoPrimary: { fontSize: 15, fontWeight: '800', color: '#1D4C4A', letterSpacing: 0.8 },
-  logoSecondary: { fontSize: 8, fontWeight: '700', color: '#63A39E', letterSpacing: 1.4 },
+  logoPrimary: { fontSize: 15, fontWeight: '900', color: '#024F45', letterSpacing: 1.0 },
+  logoSecondary: { fontSize: 8, fontWeight: '800', color: '#3F8C7E', letterSpacing: 1.6 },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 30,
+    backgroundColor: palette.surface,
+    borderRadius: 32,
     paddingHorizontal: 22,
     paddingVertical: 28,
     gap: 18,
-    shadowColor: '#214A47',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 22,
-    elevation: 5,
+    borderWidth: 1,
+    borderColor: palette.border,
+    ...elevation.e2,
   },
   title: {
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: '800',
-    color: '#2E3138',
+    color: palette.ink,
     textAlign: 'center',
+    letterSpacing: -0.4,
   },
   subtitle: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#9097A3',
+    color: palette.muted,
     textAlign: 'center',
-    marginTop: -4,
+    marginTop: -8,
   },
-  roleRow: {
+  roleTrack: {
+    position: 'relative',
     flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
+    backgroundColor: palette.surfaceMuted,
+    borderRadius: 999,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  roleIndicator: {
+    position: 'absolute',
+    backgroundColor: palette.accent,
+    borderRadius: 999,
   },
   rolePill: {
     flex: 1,
-    minHeight: 44,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: '#F1F5F4',
+    minHeight: 40,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 999,
     overflow: 'hidden',
   },
-  rolePillActive: { backgroundColor: '#24C9AE' },
-  rolePillPressed: { opacity: 0.9 },
-  rolePillText: { fontSize: 13, fontWeight: '700', color: '#5C6470' },
-  rolePillTextActive: { color: '#FFFFFF' },
+  rolePillText: { fontSize: 13, fontWeight: '800', color: palette.muted, letterSpacing: 0.2 },
+  rolePillTextActive: { color: palette.white },
   formBlock: { gap: 14 },
   fieldErrorText: {
     fontSize: 12,
@@ -444,7 +558,7 @@ const styles = StyleSheet.create({
     marginTop: -8,
   },
   footerLinkWrap: { alignItems: 'center', paddingTop: 2, paddingVertical: 8 },
-  footerLinkPressed: { opacity: 0.7 },
+  footerLinkPressed: { opacity: 0.6 },
   footerText: { fontSize: 13, lineHeight: 18, color: palette.muted, textAlign: 'center' },
-  footerLinkText: { color: '#24C9AE', fontWeight: '700' },
+  footerLinkText: { color: palette.accentDeep, fontWeight: '800' },
 });

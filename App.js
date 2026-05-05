@@ -1,6 +1,8 @@
+import 'react-native-gesture-handler';
 import React, { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { Animated, Easing, SafeAreaView, StyleSheet, View, Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AuthScreen } from './src/screens/AuthScreen';
 import { Banner, palette } from './src/components/uiAirbnb';
@@ -90,39 +92,41 @@ export default function App() {
   }
 
   return (
-    <AppErrorBoundary>
-      <ToastProvider>
-        <SafeAreaView style={styles.safeArea}>
-          <StatusBar style="light" backgroundColor="transparent" translucent />
-          <View style={styles.appShell}>
-            <SyncIndicator visible={state.isSyncing} />
-            {!state.session.role ? (
-              <AuthScreen
-                onLogin={actions.login}
-                onForgotPasswordRequestOtp={actions.forgotPasswordRequestOtp}
-                onForgotPasswordReset={actions.forgotPasswordReset}
-                isBusy={state.isSyncing}
-                backendError={state.backendError}
-              />
-            ) : state.mustChangePassword ? (
-              <ChangePasswordScreen
-                onChangePassword={actions.changePassword}
-                isBusy={state.isSyncing}
-                backendError={state.backendError}
-                forced
-                onLogout={actions.logout}
-              />
-            ) : state.session.role === 'super_admin' ? (
-              <SuperAdminWorkspace state={state} actions={actions} onLogout={actions.logout} />
-            ) : state.session.role === 'owner' ? (
-              <OwnerWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
-            ) : (
-              <TenantWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
-            )}
-          </View>
-        </SafeAreaView>
-      </ToastProvider>
-    </AppErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AppErrorBoundary>
+        <ToastProvider>
+          <SafeAreaView style={styles.safeArea}>
+            <StatusBar style="light" backgroundColor="transparent" translucent />
+            <View style={styles.appShell}>
+              <SyncIndicator visible={state.isSyncing} />
+              {!state.session.role ? (
+                <AuthScreen
+                  onLogin={actions.login}
+                  onForgotPasswordRequestOtp={actions.forgotPasswordRequestOtp}
+                  onForgotPasswordReset={actions.forgotPasswordReset}
+                  isBusy={state.isSyncing}
+                  backendError={state.backendError}
+                />
+              ) : state.mustChangePassword ? (
+                <ChangePasswordScreen
+                  onChangePassword={actions.changePassword}
+                  isBusy={state.isSyncing}
+                  backendError={state.backendError}
+                  forced
+                  onLogout={actions.logout}
+                />
+              ) : state.session.role === 'super_admin' ? (
+                <SuperAdminWorkspace state={state} actions={actions} onLogout={actions.logout} />
+              ) : state.session.role === 'owner' ? (
+                <OwnerWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
+              ) : (
+                <TenantWorkspaceMobile state={state} actions={actions} onLogout={actions.logout} />
+              )}
+            </View>
+          </SafeAreaView>
+        </ToastProvider>
+      </AppErrorBoundary>
+    </GestureHandlerRootView>
   );
 }
 
@@ -152,10 +156,10 @@ const styles = StyleSheet.create({
     right: 0,
     height: 3,
     zIndex: 100,
-    backgroundColor: 'rgba(36,201,174,0.2)',
+    backgroundColor: 'rgba(0,199,168,0.2)',
   },
   syncBarFill: {
     height: 3,
-    backgroundColor: '#24C9AE',
+    backgroundColor: '#00C7A8',
   },
 });
