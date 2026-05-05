@@ -293,6 +293,8 @@ export function PageHeader({ eyebrow, title, subtitle, highlights = [], actionLa
   );
 }
 
+const BANNER_ICONS = { info: 'ⓘ', success: '✓', warning: '!', danger: '⚠' };
+
 export function Banner({ message, tone = 'info' }) {
   const colors = getBannerTone(tone);
   const opacity = useSharedValue(0);
@@ -308,6 +310,8 @@ export function Banner({ message, tone = 'info' }) {
     transform: [{ translateY: ty.value }],
   }));
 
+  const icon = BANNER_ICONS[tone] || BANNER_ICONS.info;
+
   return (
     <Animated.View
       style={[
@@ -316,6 +320,9 @@ export function Banner({ message, tone = 'info' }) {
         style,
       ]}
     >
+      <View style={[styles.bannerIcon, { backgroundColor: colors.color }]}>
+        <Text style={styles.bannerIconText}>{icon}</Text>
+      </View>
       <Text style={[styles.bannerText, { color: colors.color }]}>{message}</Text>
     </Animated.View>
   );
@@ -784,11 +791,13 @@ export function PrimaryButton({ label, onPress, tone = 'primary', disabled = fal
   );
 }
 
-export function EmptyState({ title, description }) {
+export function EmptyState({ title, description, icon = '✨' }) {
   const entry = useEntryAnimation(0);
   return (
     <Animated.View style={[styles.emptyState, entry]}>
-      <View style={styles.emptyDot} />
+      <View style={styles.emptyIcon}>
+        <Text style={styles.emptyIconText}>{icon}</Text>
+      </View>
       <Text style={styles.emptyTitle}>{title}</Text>
       {description ? <Text style={styles.emptyDescription}>{description}</Text> : null}
     </Animated.View>
@@ -912,12 +921,23 @@ const styles = StyleSheet.create({
   },
   highlightText: { color: palette.white, fontSize: 12, fontWeight: '700' },
   banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
+    gap: 10,
   },
-  bannerText: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  bannerIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bannerIconText: { fontSize: 13, fontWeight: '900', color: palette.white, lineHeight: 16 },
+  bannerText: { flex: 1, fontSize: 13, lineHeight: 19, fontWeight: '700' },
 
   // Tab strip
   tabStrip: {
@@ -1141,14 +1161,24 @@ const styles = StyleSheet.create({
   shimmer: { flex: 1 },
 
   emptyState: {
-    paddingVertical: 18,
+    paddingVertical: 22,
     paddingHorizontal: 4,
-    gap: 8,
-    alignItems: 'flex-start',
+    gap: 10,
+    alignItems: 'center',
   },
-  emptyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.borderStrong },
-  emptyTitle: { color: palette.ink, fontSize: 16, fontWeight: '800' },
-  emptyDescription: { color: palette.muted, lineHeight: 22 },
+  emptyIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.surfaceTint,
+    borderWidth: 1,
+    borderColor: '#BDF1E2',
+  },
+  emptyIconText: { fontSize: 24, lineHeight: 28 },
+  emptyTitle: { color: palette.ink, fontSize: 16, fontWeight: '800', textAlign: 'center' },
+  emptyDescription: { color: palette.muted, lineHeight: 22, textAlign: 'center' },
   inlineGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
 
   qrCard: {

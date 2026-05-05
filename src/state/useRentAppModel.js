@@ -150,14 +150,14 @@ useEffect(() => {
   }
 
   const actions = {
-    forgotPasswordRequestOtp(role, phone) {
+    forgotPasswordRequestOtp(phone) {
       setState((currentState) => ({
         ...currentState,
         isSyncing: true,
         backendError: null,
       }));
 
-      return forgotPasswordRequestOtp(role, phone)
+      return forgotPasswordRequestOtp(phone)
         .then((payload) => {
           setState((currentState) => ({
             ...currentState,
@@ -177,14 +177,14 @@ useEffect(() => {
         });
     },
 
-    forgotPasswordReset(role, phone, code, newPassword) {
+    forgotPasswordReset(phone, code, newPassword) {
       setState((currentState) => ({
         ...currentState,
         isSyncing: true,
         backendError: null,
       }));
 
-      return forgotPasswordReset(role, phone, code, newPassword)
+      return forgotPasswordReset(phone, code, newPassword)
         .then((payload) => {
           setState((currentState) => ({
             ...currentState,
@@ -204,7 +204,7 @@ useEffect(() => {
         });
     },
 
-    async login(role, phone, password) {
+    async login(phone, password) {
       setState((currentState) => ({
         ...currentState,
         isSyncing: true,
@@ -213,7 +213,6 @@ useEffect(() => {
 
       try {
         const { state: serverState, mustChangePassword } = await loginWithPassword(
-          role,
           phone,
           password,
         );

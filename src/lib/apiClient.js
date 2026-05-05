@@ -139,10 +139,10 @@ async function verifyOtp(role, phone, code) {
   return payload.state;
 }
 
-async function loginWithPassword(role, phone, password) {
+async function loginWithPassword(phone, password) {
   const payload = await requestJson('/api/auth/login', {
     method: 'POST',
-    body: { role, phone, password },
+    body: { phone, password },
     auth: false,
   });
 
@@ -150,18 +150,18 @@ async function loginWithPassword(role, phone, password) {
   return { state: payload.state, mustChangePassword: Boolean(payload.mustChangePassword) };
 }
 
-function forgotPasswordRequestOtp(role, phone) {
+function forgotPasswordRequestOtp(phone) {
   return requestJson('/api/auth/forgot-password/request-otp', {
     method: 'POST',
-    body: { role, phone },
+    body: { phone },
     auth: false,
   });
 }
 
-function forgotPasswordReset(role, phone, code, newPassword) {
+function forgotPasswordReset(phone, code, newPassword) {
   return requestJson('/api/auth/forgot-password/reset', {
     method: 'POST',
-    body: { role, phone, code, newPassword },
+    body: { phone, code, newPassword },
     auth: false,
   });
 }

@@ -26,12 +26,6 @@ const {
   normalizePhoneForCountry,
 } = require('../lib/countryPhone');
 
-const ROLES = [
-  { key: 'tenant', label: 'Tenant' },
-  { key: 'owner', label: 'Owner' },
-  { key: 'super_admin', label: 'Admin' },
-];
-
 const MODES = {
   LOGIN: 'login',
   FORGOT_REQUEST: 'forgot-request',
@@ -66,59 +60,6 @@ function FloatingShape({ style, delay = 0, distance = 8, duration = 4400 }) {
   return <Animated.View style={[style, animatedStyle]} pointerEvents="none" />;
 }
 
-// Role pill row with a sliding indicator
-function RolePicker({ value, onChange }) {
-  const [width, setWidth] = useState(0);
-  const activeIndex = ROLES.findIndex((r) => r.key === value);
-  const indicatorX = useSharedValue(0);
-
-  const padding = 6;
-  const tabWidth = width > 0 ? (width - padding * 2) / ROLES.length : 0;
-
-  useEffect(() => {
-    if (tabWidth > 0) {
-      indicatorX.value = withSpring(activeIndex * tabWidth, springTokens.indicator);
-    }
-  }, [activeIndex, tabWidth, indicatorX]);
-
-  const indicatorStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: indicatorX.value }],
-  }));
-
-  return (
-    <View style={styles.roleTrack} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-      {tabWidth > 0 ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.roleIndicator,
-            { width: tabWidth, left: padding, top: padding, bottom: padding },
-            indicatorStyle,
-          ]}
-        />
-      ) : null}
-      {ROLES.map((option) => {
-        const isActive = option.key === value;
-        return (
-          <Pressable
-            key={option.key}
-            onPress={() => {
-              haptic.selection();
-              onChange(option.key);
-            }}
-            android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: false }}
-            style={styles.rolePill}
-          >
-            <Text style={[styles.rolePillText, isActive && styles.rolePillTextActive]}>
-              {option.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 // Mode-content cross-fade — re-runs animation on mode change
 function ModeFader({ mode, children }) {
   const opacity = useSharedValue(0);
@@ -145,7 +86,6 @@ export function AuthScreen({
   isBusy = false,
   backendError = null,
 }) {
-  const [role, setRole] = useState('tenant');
   const [mode, setMode] = useState(MODES.LOGIN);
   const [phone, setPhone] = useState('');
   const [countryDialCode, setCountryDialCode] = useState(DEFAULT_DIAL_CODE);
@@ -201,12 +141,6 @@ export function AuthScreen({
     }
   }, []);
 
-  const handleRoleChange = (nextRole) => {
-    setRole(nextRole);
-    setMode(MODES.LOGIN);
-    resetForm();
-  };
-
   useAndroidBackHandler(() => {
     if (mode === MODES.FORGOT_RESET) { goToMode(MODES.FORGOT_REQUEST); return true; }
     if (mode === MODES.FORGOT_REQUEST) { goToMode(MODES.LOGIN); return true; }
@@ -233,7 +167,7 @@ export function AuthScreen({
       throw new Error('__validation__');
     }
     setServerMessage(null);
-    await onLogin(role, normalizedPhone, password);
+    await onLogin(normalizedPhone, password);
     haptic.success();
   });
 
@@ -244,7 +178,7 @@ export function AuthScreen({
       throw new Error('__validation__');
     }
     setServerMessage(null);
-    await onForgotPasswordRequestOtp(role, normalizedPhone);
+    await onForgotPasswordRequestOtp(normalizedPhone);
     goToMode(MODES.FORGOT_RESET);
     setServerMessage({ tone: 'info', text: 'OTP sent. Enter the code and your new password below.' });
   });
@@ -261,7 +195,7 @@ export function AuthScreen({
       throw new Error('__validation__');
     }
     setServerMessage(null);
-    await onForgotPasswordReset(role, normalizedPhone, otp, newPassword);
+    await onForgotPasswordReset(normalizedPhone, otp, newPassword);
     goToMode(MODES.LOGIN);
     setPassword('');
     setServerMessage({ tone: 'success', text: 'Password updated. Please log in.' });
@@ -279,7 +213,6 @@ export function AuthScreen({
     }
   };
 
-  const isTenant = role === 'tenant';
   const submitting = loginAction.isLoading || forgotRequestAction.isLoading || forgotResetAction.isLoading;
 
   const title =
@@ -289,7 +222,7 @@ export function AuthScreen({
 
   const subtitle =
     mode === MODES.LOGIN
-      ? `Sign in as ${role === 'super_admin' ? 'admin' : role === 'owner' ? 'owner' : 'tenant'}`
+      ? 'Sign in with your phone number and password.'
       : mode === MODES.FORGOT_REQUEST
         ? `We'll send a one-time code via SMS.`
         : 'Enter the OTP and choose a new password.';
@@ -333,8 +266,6 @@ export function AuthScreen({
         <Animated.View style={[styles.card, cardStyle]}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
-
-          <RolePicker value={role} onChange={handleRoleChange} />
 
           {serverMessage ? <Banner tone={serverMessage.tone} message={serverMessage.text} /> : null}
           {!serverMessage && backendError ? <Banner tone="danger" message={backendError} /> : null}
@@ -421,23 +352,15 @@ export function AuthScreen({
           />
 
           {mode === MODES.LOGIN ? (
-            isTenant ? (
-              <View style={styles.footerLinkWrap}>
-                <Text style={styles.footerText}>
-                  Forgot password?  <Text style={styles.footerLinkText}>Ask your owner.</Text>
-                </Text>
-              </View>
-            ) : (
-              <Pressable
-                onPress={() => goToMode(MODES.FORGOT_REQUEST)}
-                android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: true }}
-                style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
-              >
-                <Text style={styles.footerText}>
-                  <Text style={styles.footerLinkText}>Forgot password?</Text>
-                </Text>
-              </Pressable>
-            )
+            <Pressable
+              onPress={() => goToMode(MODES.FORGOT_REQUEST)}
+              android_ripple={{ color: 'rgba(0,199,168,0.18)', borderless: true }}
+              style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.footerLinkPressed]}
+            >
+              <Text style={styles.footerText}>
+                <Text style={styles.footerLinkText}>Forgot password?</Text>
+              </Text>
+            </Pressable>
           ) : (
             <Pressable
               onPress={() => goToMode(MODES.LOGIN)}
@@ -524,32 +447,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: -8,
   },
-  roleTrack: {
-    position: 'relative',
-    flexDirection: 'row',
-    backgroundColor: palette.surfaceMuted,
-    borderRadius: 999,
-    padding: 6,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  roleIndicator: {
-    position: 'absolute',
-    backgroundColor: palette.accent,
-    borderRadius: 999,
-  },
-  rolePill: {
-    flex: 1,
-    minHeight: 40,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  rolePillText: { fontSize: 13, fontWeight: '800', color: palette.muted, letterSpacing: 0.2 },
-  rolePillTextActive: { color: palette.white },
   formBlock: { gap: 14 },
   fieldErrorText: {
     fontSize: 12,

@@ -326,22 +326,17 @@ async function findAuthIdentity(prisma, role, phone) {
     where: { phone: { in: phoneCandidates } },
   });
 
-  if (role === 'super_admin') {
-    if (!superAdmin) {
-      throw new Error('This phone number is not registered yet.');
-    }
-
-    return {
-      role: 'super_admin',
-      phone: normalizePhoneNumber(superAdmin.phone),
-      ownerId: null,
-      tenantId: null,
-      superAdminId: superAdmin.id,
-      passwordHash: superAdmin.passwordHash,
-      mustChangePassword: superAdmin.mustChangePassword,
-    };
-  }
-
+  const superAdminIdentity = superAdmin
+    ? {
+        role: 'super_admin',
+        phone: normalizePhoneNumber(superAdmin.phone),
+        ownerId: null,
+        tenantId: null,
+        superAdminId: superAdmin.id,
+        passwordHash: superAdmin.passwordHash,
+        mustChangePassword: superAdmin.mustChangePassword,
+      }
+    : null;
   const ownerIdentity = owner
     ? {
         role: 'owner',
@@ -364,6 +359,23 @@ async function findAuthIdentity(prisma, role, phone) {
         mustChangePassword: Boolean(tenant.mustChangePassword),
       }
     : null;
+
+  // Auto-detect role when caller did not specify one (unified login).
+  // Priority: super_admin > owner > tenant.
+  if (!role || role === 'auto') {
+    const detected = superAdminIdentity || ownerIdentity || tenantIdentity;
+    if (!detected) {
+      throw new Error('This phone number is not registered yet.');
+    }
+    return detected;
+  }
+
+  if (role === 'super_admin') {
+    if (!superAdminIdentity) {
+      throw new Error('This phone number is not registered yet.');
+    }
+    return superAdminIdentity;
+  }
 
   if (role === 'owner') {
     if (ownerIdentity) {
@@ -873,17 +885,17 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async loginWithPassword({ role, phone, password }, requestMeta = {}) {
       return run(async () => {
-        if (!role || !phone || !password) {
-          throw new Error('Role, phone, and password are required.');
+        if (!phone || !password) {
+          throw new Error('Phone and password are required.');
         }
 
-        const rateKey = buildOtpRateKey(`pwd:${role}`, phone, requestMeta.ipAddress);
+        const identity = await findAuthIdentity(prisma, role || 'auto', phone);
+
+        const rateKey = buildOtpRateKey(`pwd:${identity.role}`, phone, requestMeta.ipAddress);
         takeRateLimitedSlot(otpVerifyTracker, rateKey, {
           windowMs: OTP_VERIFY_WINDOW_MS,
           maxAttempts: OTP_VERIFY_MAX_ATTEMPTS,
         });
-
-        const identity = await findAuthIdentity(prisma, role, phone);
 
         if (!identity.passwordHash) {
           throw new Error('Password login is not yet set up for this account.');
@@ -988,15 +1000,27 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async requestPasswordReset({ role, phone }, requestMeta = {}) {
       return run(async () => {
-        if (role === 'tenant') {
-          throw new Error('Ask your owner to reset your password.');
+        if (!phone) {
+          throw new Error('Phone is required.');
         }
 
-        if (role !== 'owner' && role !== 'super_admin') {
+        let resolvedRole = role && role !== 'auto' ? role : null;
+        try {
+          const identity = await findAuthIdentity(prisma, resolvedRole || 'auto', phone);
+          resolvedRole = identity.role;
+        } catch (_error) {
+          // Allow rate-limit pacing below even if identity lookup fails so we
+          // don't leak which numbers exist.
+        }
+
+        if (resolvedRole === 'tenant') {
+          throw new Error('Ask your owner to reset your password.');
+        }
+        if (resolvedRole && resolvedRole !== 'owner' && resolvedRole !== 'super_admin') {
           throw new Error('Invalid role for password reset.');
         }
 
-        const rateKey = buildOtpRateKey(`reset:${role}`, phone, requestMeta.ipAddress);
+        const rateKey = buildOtpRateKey(`reset:${resolvedRole || 'unknown'}`, phone, requestMeta.ipAddress);
         takeRateLimitedSlot(otpRequestTracker, rateKey, {
           windowMs: OTP_REQUEST_WINDOW_MS,
           maxAttempts: OTP_REQUEST_MAX_ATTEMPTS,
@@ -1004,10 +1028,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
         });
 
         try {
-          await findAuthIdentity(prisma, role, phone);
-          await startPhoneVerification(phone);
+          if (resolvedRole) {
+            await startPhoneVerification(phone);
+          }
         } catch (_error) {
-          // Swallow to avoid leaking which numbers exist; cap errors do bubble.
           if (_error?.code === 'TWILIO_DAILY_CAP_EXCEEDED') {
             throw _error;
           }
@@ -1019,23 +1043,27 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async resetPassword({ role, phone, code, newPassword }, requestMeta = {}) {
       return run(async () => {
-        if (role === 'tenant') {
-          throw new Error('Ask your owner to reset your password.');
-        }
-        if (role !== 'owner' && role !== 'super_admin') {
-          throw new Error('Invalid role for password reset.');
+        if (!phone) {
+          throw new Error('Phone is required.');
         }
         if (!code || !newPassword) {
           throw new Error('OTP code and new password are required.');
         }
 
-        const rateKey = buildOtpRateKey(`reset:${role}`, phone, requestMeta.ipAddress);
+        const identity = await findAuthIdentity(prisma, role || 'auto', phone);
+
+        if (identity.role === 'tenant') {
+          throw new Error('Ask your owner to reset your password.');
+        }
+        if (identity.role !== 'owner' && identity.role !== 'super_admin') {
+          throw new Error('Invalid role for password reset.');
+        }
+
+        const rateKey = buildOtpRateKey(`reset:${identity.role}`, phone, requestMeta.ipAddress);
         takeRateLimitedSlot(otpVerifyTracker, rateKey, {
           windowMs: OTP_VERIFY_WINDOW_MS,
           maxAttempts: OTP_VERIFY_MAX_ATTEMPTS,
         });
-
-        const identity = await findAuthIdentity(prisma, role, phone);
 
         let verification;
         try {
@@ -1049,7 +1077,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
         const newHash = await hashPassword(newPassword);
 
-        if (role === 'super_admin') {
+        if (identity.role === 'super_admin') {
           await prisma.superAdmin.update({
             where: { id: identity.superAdminId },
             data: { passwordHash: newHash, mustChangePassword: false },
@@ -1062,7 +1090,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
         }
 
         await prisma.authSession.updateMany({
-          where: { role, phone: identity.phone, revokedAt: null },
+          where: { role: identity.role, phone: identity.phone, revokedAt: null },
           data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
         });
 
