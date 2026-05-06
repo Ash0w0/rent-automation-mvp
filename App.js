@@ -96,7 +96,7 @@ export default function App() {
       <AppErrorBoundary>
         <ToastProvider>
           <SafeAreaView style={styles.safeArea}>
-            <StatusBar style="light" backgroundColor="transparent" translucent />
+            <StatusBar style="dark" backgroundColor="transparent" translucent />
             <View style={styles.appShell}>
               <SyncIndicator visible={state.isSyncing} />
               {!state.session.role ? (

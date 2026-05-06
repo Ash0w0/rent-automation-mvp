@@ -258,8 +258,8 @@ export function AuthScreen({
             style={StyleSheet.absoluteFillObject}
           />
           <View style={styles.logoInner}>
-            <Text style={styles.logoPrimary}>RENT</Text>
-            <Text style={styles.logoSecondary}>AUTOMATION</Text>
+            <Text style={styles.logoPrimary}>PAKKA</Text>
+            <Text style={styles.logoSecondary}>RENT, SEALED.</Text>
           </View>
         </Animated.View>
 
