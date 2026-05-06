@@ -16,17 +16,11 @@ import Animated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import * as Clipboard from 'expo-clipboard';
+
 import { palette, elevation } from './uiAirbnb';
 import { useToast } from './ToastHost';
 import { spring as springTokens, haptic } from '../lib/motion';
-
-let Clipboard = null;
-try {
-  // eslint-disable-next-line global-require
-  Clipboard = require('expo-clipboard');
-} catch (_error) {
-  Clipboard = null;
-}
 
 function buildMessage({ recipientName, recipientPhone, role, tempPassword, inviterName }) {
   const roleLabel = role === 'owner' ? 'Owner' : 'Tenant';
@@ -121,13 +115,6 @@ export function TempPasswordShareModal({
   const phoneDigits = digitsOnly(recipientPhone);
 
   const handleCopy = async () => {
-    if (!Clipboard?.setStringAsync) {
-      toast.show({
-        tone: 'danger',
-        message: 'Copy not available. Long-press the password to select it.',
-      });
-      return;
-    }
     try {
       await Clipboard.setStringAsync(tempPassword);
       setCopied(true);
