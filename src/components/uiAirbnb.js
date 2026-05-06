@@ -173,35 +173,6 @@ function getBannerTone(tone) {
 // Animated helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Parallax floating shapes used by ScreenSurface hero
-function FloatingShape({ style, delay = 0, distance = 6, duration = 4200 }) {
-  const offset = useSharedValue(0);
-
-  useEffect(() => {
-    offset.value = withDelay(
-      delay,
-      withRepeat(
-        withSequence(
-          withTiming(1, { duration, easing: RNEasing.inOut(RNEasing.quad) }),
-          withTiming(0, { duration, easing: RNEasing.inOut(RNEasing.quad) }),
-        ),
-        -1,
-        false,
-      ),
-    );
-    return () => cancelAnimation(offset);
-  }, [delay, duration, offset]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { rotate: '45deg' },
-      { translateY: interpolate(offset.value, [0, 1], [0, -distance]) },
-      { translateX: interpolate(offset.value, [0, 1], [0, distance / 2]) },
-    ],
-  }));
-
-  return <Animated.View style={[style, animatedStyle]} pointerEvents="none" />;
-}
 
 // Shimmer overlay used on PrimaryButton during loading
 function ShimmerOverlay({ active }) {
@@ -251,18 +222,6 @@ export function ScreenSurface({ children, bottomBar = null, hero = null, refresh
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      <View style={styles.screenHero}>
-        <LinearGradient
-          colors={['#1A1A2E', '#0B0E13']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <FloatingShape style={[styles.heroShape, styles.heroShapeLeft]} delay={0} />
-        <FloatingShape style={[styles.heroShape, styles.heroShapeCenter]} delay={400} duration={5200} />
-        <FloatingShape style={[styles.heroShape, styles.heroShapeRight]} delay={800} duration={4600} />
-        {hero ? <View style={styles.heroContent}>{hero}</View> : null}
-      </View>
       <ScrollView
         style={styles.screen}
         contentContainerStyle={[styles.screenContent, bottomBar && styles.screenContentWithBottomBar]}
@@ -271,6 +230,7 @@ export function ScreenSurface({ children, bottomBar = null, hero = null, refresh
         keyboardShouldPersistTaps="handled"
         refreshControl={refreshControl}
       >
+        {hero ? <View style={styles.heroContent}>{hero}</View> : null}
         {children}
       </ScrollView>
       {bottomBar ? <View style={styles.bottomBarWrap}>{bottomBar}</View> : null}
@@ -846,35 +806,14 @@ const styles = StyleSheet.create({
     ...Platform.select({ web: { maxWidth: 460, alignSelf: 'center' }, default: {} }),
     overflow: 'hidden',
   },
-  screenHero: {
-    minHeight: 220,
-    justifyContent: 'flex-end',
-    paddingHorizontal: 22,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 28 : 56,
-    paddingBottom: 38,
-    overflow: 'hidden',
-  },
-  heroShape: {
-    position: 'absolute',
-    width: 150,
-    height: 150,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 32,
-  },
-  heroShapeLeft: { left: -28, top: 28 },
-  heroShapeCenter: { left: 142, top: 6 },
-  heroShapeRight: { right: -32, top: 50 },
-  heroContent: { gap: 10 },
+  heroContent: { gap: 6, paddingBottom: 4 },
   screen: {
     flex: 1,
     backgroundColor: palette.background,
-    marginTop: -28,
-    borderTopLeftRadius: 36,
-    borderTopRightRadius: 36,
   },
   screenContent: {
     paddingHorizontal: 22,
-    paddingTop: 26,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 14 : 18,
     paddingBottom: 42,
     gap: 18,
   },
@@ -892,21 +831,21 @@ const styles = StyleSheet.create({
   headerRow: { gap: 12 },
   headerCopy: { gap: 8 },
   eyebrow: {
-    color: '#D6FBF1',
-    fontSize: 12,
+    color: palette.muted,
+    fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.9,
     fontWeight: '800',
   },
   heroTitle: {
-    color: palette.white,
-    fontSize: 32,
-    lineHeight: 38,
+    color: palette.ink,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: '800',
     letterSpacing: -0.4,
   },
   heroSubtitle: {
-    color: 'rgba(255,255,255,0.86)',
+    color: palette.muted,
     fontSize: 14,
     lineHeight: 21,
   },
