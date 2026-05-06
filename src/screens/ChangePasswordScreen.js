@@ -136,11 +136,9 @@ export function ChangePasswordScreen({
     setFieldErrors({});
     setServerMessage(null);
     await onChangePassword(currentPassword, newPassword);
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setServerMessage({ tone: 'success', text: 'Password updated.' });
     haptic.success();
+    // Redirect to login so the owner signs in with their new password
+    onLogout?.();
   });
 
   const handleSubmit = async () => {
