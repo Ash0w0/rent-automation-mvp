@@ -752,12 +752,12 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [contractForm, setContractForm] = useState({
     tenancyId: '',
     contractUploads: [],
-    rentAmount: '15000',
-    depositAmount: '30000',
-    dueDay: '5',
-    moveInDate: state.referenceDate,
-    contractStart: state.referenceDate,
-    contractEnd: '2027-03-31',
+    rentAmount: '',
+    depositAmount: '',
+    dueDay: '',
+    moveInDate: '',
+    contractStart: '',
+    contractEnd: '',
   });
   const [moveOutForm, setMoveOutForm] = useState({ tenancyId: '', moveOutDate: state.referenceDate });
 
@@ -1318,9 +1318,9 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                   </View>
                 ) : null}
               </View>
-              <Field label="Monthly rent" value={contractForm.rentAmount} onChangeText={(value) => setContractForm((current) => ({ ...current, rentAmount: value }))} keyboardType="numeric" />
-              <Field label="Deposit amount" value={contractForm.depositAmount} onChangeText={(value) => setContractForm((current) => ({ ...current, depositAmount: value }))} keyboardType="numeric" />
-              <Field label="Due day" value={contractForm.dueDay} onChangeText={(value) => setContractForm((current) => ({ ...current, dueDay: value }))} keyboardType="numeric" />
+              <Field label="Monthly rent" value={contractForm.rentAmount} onChangeText={(value) => setContractForm((current) => ({ ...current, rentAmount: value }))} keyboardType="numeric" placeholder="e.g. 15000" />
+              <Field label="Deposit amount" value={contractForm.depositAmount} onChangeText={(value) => setContractForm((current) => ({ ...current, depositAmount: value }))} keyboardType="numeric" placeholder="e.g. 30000" />
+              <Field label="Due day" value={contractForm.dueDay} onChangeText={(value) => setContractForm((current) => ({ ...current, dueDay: value }))} keyboardType="numeric" placeholder="e.g. 5" />
               <Field label="Move-in date" value={contractForm.moveInDate} onChangeText={(value) => setContractForm((current) => ({ ...current, moveInDate: value }))} placeholder="YYYY-MM-DD" />
               <Field label="Agreement start" value={contractForm.contractStart} onChangeText={(value) => setContractForm((current) => ({ ...current, contractStart: value }))} placeholder="YYYY-MM-DD" />
               <Field label="Agreement end" value={contractForm.contractEnd} onChangeText={(value) => setContractForm((current) => ({ ...current, contractEnd: value }))} placeholder="YYYY-MM-DD" />
