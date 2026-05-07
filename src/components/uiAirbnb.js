@@ -108,12 +108,12 @@ const statusTone = {
   OCCUPIED: { background: '#E8F1FF', color: '#3263B0' },
   NOTICE: { background: '#FFF4E2', color: '#B97816' },
   ACTIVE: { background: '#E8F8EE', color: '#127C53' },
-  INVITED: { background: '#E6FBF5', color: '#008B7A' },
+  INVITED: { background: '#EEEEF4', color: '#3A3A5C' },
   MOVE_OUT_SCHEDULED: { background: '#FFF4E2', color: '#B97816' },
   CLOSED: { background: '#EEF1F4', color: '#5A6270' },
   DUE: { background: '#FFF4E2', color: '#B97816' },
   OVERDUE: { background: '#FFEDEA', color: '#C9402F' },
-  PAYMENT_SUBMITTED: { background: '#E6FBF5', color: '#008B7A' },
+  PAYMENT_SUBMITTED: { background: '#EEEEF4', color: '#3A3A5C' },
   PAID: { background: '#E8F8EE', color: '#127C53' },
   READY: { background: '#E8F8EE', color: '#127C53' },
   COMPLETE: { background: '#E8F8EE', color: '#127C53' },
@@ -122,7 +122,7 @@ const statusTone = {
   SENT: { background: '#E8F8EE', color: '#127C53' },
   FAILED: { background: '#FFEDEA', color: '#C9402F' },
   CANCELED: { background: '#EEF1F4', color: '#5A6270' },
-  PENDING_REVIEW: { background: '#E6FBF5', color: '#008B7A' },
+  PENDING_REVIEW: { background: '#EEEEF4', color: '#3A3A5C' },
   APPROVED: { background: '#E8F8EE', color: '#127C53' },
   REJECTED: { background: '#FFEDEA', color: '#C9402F' },
   WHATSAPP: { background: '#E8F8EE', color: '#127C53' },
@@ -220,7 +220,7 @@ export function ScreenSurface({ children, bottomBar = null, hero = null, refresh
     <KeyboardAvoidingView
       style={styles.screenShell}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={80}
     >
       <ScrollView
         style={styles.screen}
@@ -596,7 +596,7 @@ export const Field = forwardRef(function Field(
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={palette.mutedSoft}
+          placeholderTextColor={palette.muted}
           keyboardType={keyboardType}
           multiline={multiline}
           secureTextEntry={secureTextEntry}
@@ -813,7 +813,7 @@ const styles = StyleSheet.create({
   },
   screenContent: {
     paddingHorizontal: 22,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 14 : 18,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 4 : 4,
     paddingBottom: 42,
     gap: 18,
   },
@@ -1084,7 +1084,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   buttonCompact: {
-    minHeight: 44,
+    minHeight: 48,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },

@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 16, fontWeight: '800', color: '#1F2733' },
   primary: {
-    backgroundColor: '#24C9AE',
+    backgroundColor: palette.accent,
     borderRadius: 999,
     paddingVertical: 14,
     alignItems: 'center',

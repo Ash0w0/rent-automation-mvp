@@ -1324,11 +1324,15 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               <Field label="Move-in date" value={contractForm.moveInDate} onChangeText={(value) => setContractForm((current) => ({ ...current, moveInDate: value }))} placeholder="YYYY-MM-DD" />
               <Field label="Agreement start" value={contractForm.contractStart} onChangeText={(value) => setContractForm((current) => ({ ...current, contractStart: value }))} placeholder="YYYY-MM-DD" />
               <Field label="Agreement end" value={contractForm.contractEnd} onChangeText={(value) => setContractForm((current) => ({ ...current, contractEnd: value }))} placeholder="YYYY-MM-DD" />
-              <PrimaryButton label="Start stay" onPress={() => handleAction(async () => {
-                await actions.activateTenancy(contractForm);
-                setContractForm((current) => ({ ...current, contractUploads: [] }));
-                setResidentMode('rooms');
-              }, 'Stay started.')} />
+              <PrimaryButton
+                label="Start stay"
+                disabled={!contractForm.tenancyId || !contractForm.moveInDate || !contractForm.contractStart || !contractForm.contractEnd}
+                onPress={() => handleAction(async () => {
+                  await actions.activateTenancy(contractForm);
+                  setContractForm((current) => ({ ...current, contractUploads: [] }));
+                  setResidentMode('rooms');
+                }, 'Stay started.')}
+              />
             </View>
           ) : null}
           {!invitedTenancies.length ? (

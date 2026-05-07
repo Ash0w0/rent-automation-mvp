@@ -1,7 +1,7 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { Animated, Easing, SafeAreaView, StyleSheet, View, Text } from 'react-native';
+import { ActivityIndicator, Animated, Easing, SafeAreaView, StyleSheet, View, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AuthScreen } from './src/screens/AuthScreen';
@@ -85,7 +85,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.center}>
-          <Text>Loading...</Text>
+          <ActivityIndicator size="large" color={palette.ink} />
         </View>
       </SafeAreaView>
     );
@@ -156,10 +156,10 @@ const styles = StyleSheet.create({
     right: 0,
     height: 3,
     zIndex: 100,
-    backgroundColor: 'rgba(0,199,168,0.2)',
+    backgroundColor: 'rgba(11,14,19,0.08)',
   },
   syncBarFill: {
     height: 3,
-    backgroundColor: '#00C7A8',
+    backgroundColor: palette.ink,
   },
 });

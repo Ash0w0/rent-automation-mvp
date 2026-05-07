@@ -662,6 +662,12 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                       }
                       keyboardType="numeric"
                       returnKeyType="done"
+                      error={
+                        meterForm.closingReading && roomMeter &&
+                        Number(meterForm.closingReading) <= Number(roomMeter.lastReading)
+                          ? `Must be greater than last reading (${roomMeter.lastReading})`
+                          : null
+                      }
                     />
                     <PrimaryButton
                       label={meterForm.photoUpload ? 'Replace meter photo' : 'Upload meter photo'}
@@ -677,7 +683,11 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                       label="Submit reading"
                       onPress={handleSubmitMeter}
                       loading={submitMeterAction.isLoading}
-                      disabled={submitMeterAction.isLoading}
+                      disabled={
+                        submitMeterAction.isLoading ||
+                        !meterForm.closingReading ||
+                        (roomMeter && Number(meterForm.closingReading) <= Number(roomMeter.lastReading))
+                      }
                     />
                   </View>
                 ) : (
@@ -738,11 +748,15 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
                             tone="secondary"
                             onPress={choosePaymentProof}
                           />
-                          <UploadPreview
-                            title="Payment proof"
-                            subtitle={paymentForm.proofUpload?.fileName || 'Selected'}
-                            uri={paymentForm.proofUpload?.previewUri}
-                          />
+                          {paymentForm.proofUpload ? (
+                            <UploadPreview
+                              title="Payment proof"
+                              subtitle={paymentForm.proofUpload.fileName}
+                              uri={paymentForm.proofUpload.previewUri}
+                            />
+                          ) : (
+                            <Text style={styles.uploadPlaceholder}>No proof uploaded yet</Text>
+                          )}
                           <Field
                             label="Note (optional)"
                             value={paymentForm.note}
@@ -1062,6 +1076,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
+  uploadPlaceholder: { color: palette.muted, fontSize: 13, fontStyle: 'italic' },
   previewTitle: { color: palette.ink, fontSize: 15, fontWeight: '800' },
   previewSubtitle: { color: palette.inkSoft, lineHeight: 20 },
   previewImage: {

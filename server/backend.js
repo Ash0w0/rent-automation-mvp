@@ -312,6 +312,18 @@ function isClientError(error) {
   );
 }
 
+async function assertPhoneNotRegistered(prisma, normalizedPhone) {
+  const candidates = buildPhoneCandidates(normalizedPhone);
+  const [sa, owner, tenant] = await Promise.all([
+    prisma.superAdmin.findFirst({ where: { phone: { in: candidates } }, select: { id: true } }),
+    prisma.owner.findFirst({ where: { phone: { in: candidates } }, select: { id: true } }),
+    prisma.tenant.findFirst({ where: { phone: { in: candidates } }, select: { id: true } }),
+  ]);
+  if (sa || owner || tenant) {
+    throw new Error('This phone number is already registered. Please use a different number.');
+  }
+}
+
 async function findAuthIdentity(prisma, role, phone) {
   const normalizedPhone = normalizePhoneNumber(phone);
   const phoneCandidates = buildPhoneCandidates(normalizedPhone);
@@ -1115,13 +1127,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
             : generateTempPassword();
         const passwordHash = await hashPassword(tempPassword);
 
-        const duplicate = await prisma.owner.findFirst({
-          where: { phone: { in: buildPhoneCandidates(normalizedPhone) } },
-          select: { id: true },
-        });
-        if (duplicate) {
-          throw new Error('That phone number is already registered as an owner.');
-        }
+        await assertPhoneNotRegistered(prisma, normalizedPhone);
 
         const owner = await prisma.$transaction(async (tx) => {
           const created = await tx.owner.create({
@@ -1541,14 +1547,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('Choose a room from your property.');
         }
 
-        const duplicateTenant = await prisma.tenant.findFirst({
-          where: { phone: { in: buildPhoneCandidates(normalizedInvitePhone) } },
-          select: { id: true },
-        });
-
-        if (duplicateTenant) {
-          throw new Error('That phone number is already associated with another tenant.');
-        }
+        await assertPhoneNotRegistered(prisma, normalizedInvitePhone);
 
         const { tenant, tenancy } = createTenantInvite({
           propertyId: property.id,
