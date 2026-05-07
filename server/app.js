@@ -126,6 +126,17 @@ function createApp(backend) {
       );
   });
 
+  app.delete('/api/super-admin/owners/:ownerId', async (request, response) => {
+    response
+      .status(200)
+      .json(
+        await backend.deleteOwner(
+          { ownerId: request.params.ownerId },
+          request.authSession,
+        ),
+      );
+  });
+
   app.post('/api/tenants/:tenantId/reset-password', async (request, response) => {
     response
       .status(200)

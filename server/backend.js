@@ -1192,6 +1192,29 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
       });
     },
 
+    async deleteOwner({ ownerId }, session) {
+      return run(async () => {
+        requireSuperAdminSession(session);
+        if (!ownerId) throw new Error('Owner id is required.');
+
+        const owner = requireRecord(
+          await prisma.owner.findUnique({ where: { id: ownerId } }),
+          'Owner not found.',
+        );
+
+        await prisma.$transaction(async (tx) => {
+          await tx.authSession.updateMany({
+            where: { role: 'owner', phone: owner.phone, revokedAt: null },
+            data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+          });
+          await tx.owner.delete({ where: { id: owner.id } });
+          await recordAudit(tx, 'Owner deleted', `${owner.name} was deleted by super admin.`);
+        });
+
+        return { deleted: true, ownerId: owner.id };
+      });
+    },
+
     async ownerResetTenantPassword({ tenantId }, session) {
       return run(async () => {
         requireOwnerSession(session);
