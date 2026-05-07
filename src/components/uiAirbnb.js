@@ -813,7 +813,7 @@ const styles = StyleSheet.create({
   },
   screenContent: {
     paddingHorizontal: 22,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 14 : 18,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 4 : 4,
     paddingBottom: 42,
     gap: 18,
   },
