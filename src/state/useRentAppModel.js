@@ -8,6 +8,7 @@ const {
   closeTenancy,
   completeTenantProfile,
   createProperty,
+  deleteOwner,
   fetchAppState,
   forgotPasswordRequestOtp,
   forgotPasswordReset,
@@ -304,6 +305,25 @@ useEffect(() => {
           buildNextState(refreshed, currentState, { preserveSession: true }),
         );
         return { tempPassword: response.tempPassword, owner: response.owner };
+      } catch (error) {
+        setState((currentState) => ({
+          ...currentState,
+          isHydrating: false,
+          isSyncing: false,
+          backendError: normalizeError(error),
+        }));
+        throw error;
+      }
+    },
+
+    async deleteOwner(ownerId) {
+      setState((currentState) => ({ ...currentState, isSyncing: true, backendError: null }));
+      try {
+        await deleteOwner(ownerId);
+        const refreshed = await fetchAppState();
+        setState((currentState) =>
+          buildNextState(refreshed, currentState, { preserveSession: true }),
+        );
       } catch (error) {
         setState((currentState) => ({
           ...currentState,

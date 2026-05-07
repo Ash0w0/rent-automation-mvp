@@ -186,6 +186,12 @@ function superAdminResetOwnerPassword(ownerId) {
   });
 }
 
+function deleteOwner(ownerId) {
+  return requestJson(`/api/super-admin/owners/${ownerId}`, {
+    method: 'DELETE',
+  });
+}
+
 function ownerResetTenantPassword(tenantId) {
   return requestJson(`/api/tenants/${tenantId}/reset-password`, {
     method: 'POST',
@@ -344,6 +350,7 @@ module.exports = {
   generateInvoice,
   getApiBaseUrl,
   hydrateStoredTokens,
+  deleteOwner,
   inviteOwner,
   inviteTenant,
   loginWithPassword,

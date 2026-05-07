@@ -17,6 +17,7 @@ export function SuperAdminWorkspace({ state, actions, onLogout }) {
   const [countryDialCode, setCountryDialCode] = useState(DEFAULT_DIAL_CODE);
   const [message, setMessage] = useState(null);
   const [shareDetails, setShareDetails] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const owners = state.owners || [];
 
@@ -57,6 +58,17 @@ export function SuperAdminWorkspace({ state, actions, onLogout }) {
         role: 'owner',
       });
     } catch (error) {
+      setMessage({ tone: 'danger', text: error.message });
+    }
+  };
+
+  const handleDeleteOwner = async (ownerId) => {
+    try {
+      await actions.deleteOwner(ownerId);
+      setConfirmDeleteId(null);
+      setMessage({ tone: 'info', text: 'Owner deleted.' });
+    } catch (error) {
+      setConfirmDeleteId(null);
       setMessage({ tone: 'danger', text: error.message });
     }
   };
@@ -112,12 +124,37 @@ export function SuperAdminWorkspace({ state, actions, onLogout }) {
                     <Text style={styles.ownerFlag}>Pending first-login change</Text>
                   ) : null}
                 </View>
-                <Pressable
-                  onPress={() => handleResetPassword(owner)}
-                  style={({ pressed }) => [styles.reset, pressed && styles.pressed]}
-                >
-                  <Text style={styles.resetText}>Reset password</Text>
-                </Pressable>
+                <View style={styles.ownerActions}>
+                  <Pressable
+                    onPress={() => handleResetPassword(owner)}
+                    style={({ pressed }) => [styles.reset, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.resetText}>Reset pwd</Text>
+                  </Pressable>
+                  {confirmDeleteId === owner.id ? (
+                    <View style={styles.confirmRow}>
+                      <Pressable
+                        onPress={() => handleDeleteOwner(owner.id)}
+                        style={({ pressed }) => [styles.deleteConfirm, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.deleteConfirmText}>Confirm delete</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setConfirmDeleteId(null)}
+                        style={({ pressed }) => [styles.reset, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.resetText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => setConfirmDeleteId(owner.id)}
+                      style={({ pressed }) => [styles.deleteBtn, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.deleteBtnText}>Delete</Text>
+                    </Pressable>
+                  )}
+                </View>
               </View>
             ))
           )}
@@ -178,7 +215,13 @@ const styles = StyleSheet.create({
   ownerName: { fontSize: 15, fontWeight: '700', color: '#1F2733' },
   ownerPhone: { fontSize: 13, color: palette.muted, marginTop: 2 },
   ownerFlag: { fontSize: 11, color: '#C77E1B', marginTop: 2, fontWeight: '600' },
+  ownerActions: { gap: 6, alignItems: 'flex-end' },
+  confirmRow: { gap: 6, alignItems: 'flex-end' },
   reset: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#F1F5F4' },
   resetText: { color: '#1F2733', fontWeight: '700', fontSize: 12 },
+  deleteBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#FFEDEA' },
+  deleteBtnText: { color: '#C9402F', fontWeight: '700', fontSize: 12 },
+  deleteConfirm: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#C9402F' },
+  deleteConfirmText: { color: '#FFFFFF', fontWeight: '700', fontSize: 12 },
   empty: { color: palette.muted, fontSize: 13 },
 });
