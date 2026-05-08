@@ -996,14 +996,12 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('Unsupported role.');
         }
 
-        // Revoke all other sessions for this identity
-        await prisma.authSession.updateMany({
+        // Delete all other sessions for this identity
+        await prisma.authSession.deleteMany({
           where: {
             role,
             phone: identity.phone,
-            revokedAt: null,
           },
-          data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
         });
 
         return { ok: true };
@@ -1101,9 +1099,8 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           });
         }
 
-        await prisma.authSession.updateMany({
-          where: { role: identity.role, phone: identity.phone, revokedAt: null },
-          data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+        await prisma.authSession.deleteMany({
+          where: { role: identity.role, phone: identity.phone },
         });
 
         return { ok: true };
@@ -1180,9 +1177,8 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
             data: { passwordHash, mustChangePassword: true },
           });
 
-          await tx.authSession.updateMany({
-            where: { role: 'owner', phone: owner.phone, revokedAt: null },
-            data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+          await tx.authSession.deleteMany({
+            where: { role: 'owner', phone: owner.phone },
           });
 
           await recordAudit(tx, 'Owner password reset', `Password was reset for ${owner.name}.`);
@@ -1203,9 +1199,8 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
         );
 
         await prisma.$transaction(async (tx) => {
-          await tx.authSession.updateMany({
-            where: { role: 'owner', phone: owner.phone, revokedAt: null },
-            data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+          await tx.authSession.deleteMany({
+            where: { role: 'owner', phone: owner.phone },
           });
           await tx.owner.delete({ where: { id: owner.id } });
           await recordAudit(tx, 'Owner deleted', `${owner.name} was deleted by super admin.`);
@@ -1245,9 +1240,8 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
             data: { passwordHash, mustChangePassword: true },
           });
 
-          await tx.authSession.updateMany({
-            where: { role: 'tenant', phone: tenant.phone, revokedAt: null },
-            data: { revokedAt: toIso(new Date()), updatedAt: toIso(new Date()) },
+          await tx.authSession.deleteMany({
+            where: { role: 'tenant', phone: tenant.phone },
           });
 
           await recordAudit(tx, 'Tenant password reset', `Password was reset for ${tenant.fullName}.`);
@@ -1337,13 +1331,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           return { ok: true };
         }
 
-        await prisma.authSession.update({
-          where: { id: session.id },
-          data: {
-            revokedAt: toIso(new Date()),
-            updatedAt: toIso(new Date()),
-          },
-        });
+        await prisma.authSession.delete({ where: { id: session.id } });
 
         return { ok: true };
       });
