@@ -88,6 +88,18 @@ function modelMock(storeName, store) {
       });
       return {};
     },
+    async delete({ where } = {}) {
+      const [key, value] = Object.entries(where)[0];
+      const idx = store[storeName].findIndex((r) => r[key] === value);
+      if (idx === -1) throw new Error(`${storeName}: record not found`);
+      const [removed] = store[storeName].splice(idx, 1);
+      return { ...removed };
+    },
+    async deleteMany({ where } = {}) {
+      const before = store[storeName].length;
+      store[storeName] = store[storeName].filter((r) => !matchesWhere(r, where));
+      return { count: before - store[storeName].length };
+    },
   };
 }
 
@@ -315,9 +327,9 @@ test('changePassword updates hash and revokes sessions for owner', async () => {
   const owner = store.owners.find((o) => o.id === 'ow-2');
   assert.equal(owner.mustChangePassword, false);
 
-  // Sessions should be revoked
+  // Sessions should be deleted
   const sess = store.authSessions.find((s) => s.id === 'ses-1');
-  assert.ok(sess.revokedAt, 'session should be revoked');
+  assert.equal(sess, undefined, 'session should be deleted');
 });
 
 test('changePassword rejects wrong current password', async () => {
@@ -488,7 +500,7 @@ test('superAdminResetOwnerPassword sets new hash + mustChangePassword + returns 
   assert.equal(await verifyPassword(result.tempPassword, owner.passwordHash), true);
 
   const sess = store.authSessions.find((s) => s.id === 'ses-20');
-  assert.ok(sess.revokedAt, 'owner sessions should be revoked');
+  assert.equal(sess, undefined, 'owner sessions should be deleted');
 });
 
 // ---------------------------------------------------------------------------
@@ -558,5 +570,5 @@ test('ownerResetTenantPassword sets new hash + mustChangePassword + returns temp
   assert.equal(await verifyPassword(result.tempPassword, tenant.passwordHash), true);
 
   const sess = store.authSessions.find((s) => s.id === 'ses-31');
-  assert.ok(sess.revokedAt, 'tenant sessions should be revoked');
+  assert.equal(sess, undefined, 'tenant sessions should be deleted');
 });
