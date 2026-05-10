@@ -6,8 +6,9 @@ async function seedDatabase(prisma) {
     select: { id: true },
   });
 
+  const existingSuperAdmin = await prisma.superAdmin.findFirst({ select: { id: true } });
+
   if (existingOwner) {
-    const existingSuperAdmin = await prisma.superAdmin.findFirst({ select: { id: true } });
     if (!existingSuperAdmin) {
       const seed = createSeedState();
       const superAdminHash = await hashPassword(seed.seedPasswords.superAdmin);
@@ -19,6 +20,10 @@ async function seedDatabase(prisma) {
         },
       });
     }
+    return;
+  }
+
+  if (existingSuperAdmin) {
     return;
   }
 
