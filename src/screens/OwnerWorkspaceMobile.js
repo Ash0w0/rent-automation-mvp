@@ -760,6 +760,8 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     contractEnd: '',
   });
   const [moveOutForm, setMoveOutForm] = useState({ tenancyId: '', moveOutDate: state.referenceDate });
+  const [tourTransition, setTourTransition] = useState(null);
+  const prevNextKeyRef = useRef(null);
 
   const getTenant = (tenantId) => state.tenants.find((tenant) => tenant.id === tenantId);
   const getRoom = (roomId) => state.rooms.find((room) => room.id === roomId);
@@ -1016,6 +1018,33 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   ];
   const isSetupTourComplete = setupTourSteps.every((step) => step.done);
   const openTourStep = (step) => openTask(step);
+
+  // Detect when a tour step is completed and show the transition overlay
+  const tourDoneSignature = setupTourSteps.map((s) => (s.done ? '1' : '0')).join('');
+  useEffect(() => {
+    const nextStep = setupTourSteps.find((s) => !s.done) ?? null;
+    const nextKey = nextStep?.key ?? 'done';
+    const prevKey = prevNextKeyRef.current;
+
+    if (prevKey !== null && prevKey !== nextKey) {
+      const completedStep = setupTourSteps.find((s) => s.key === prevKey);
+      if (completedStep) {
+        setTourTransition({ completedTitle: completedStep.title, nextStep });
+      }
+    }
+    prevNextKeyRef.current = nextKey;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourDoneSignature]);
+
+  useEffect(() => {
+    if (!tourTransition) return;
+    const timer = setTimeout(() => {
+      if (tourTransition.nextStep) openTourStep(tourTransition.nextStep);
+      setTourTransition(null);
+    }, 2800);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourTransition]);
 
   const residentSectionCopy = {
     inventory: { title: 'Add a room', subtitle: '' },
@@ -1641,12 +1670,86 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         role={shareDetails?.role}
         inviterName={state.owner?.name || 'Owner'}
       />
+
+      {tourTransition ? (
+        <Pressable
+          style={styles.tourOverlay}
+          onPress={() => {
+            if (tourTransition.nextStep) openTourStep(tourTransition.nextStep);
+            setTourTransition(null);
+          }}
+        >
+          <View style={styles.tourOverlayCard}>
+            <Text style={styles.tourOverlayCheck}>✓</Text>
+            <Text style={styles.tourOverlayDoneText}>{tourTransition.completedTitle} complete</Text>
+            {tourTransition.nextStep ? (
+              <>
+                <Text style={styles.tourOverlayNextLabel}>Next up</Text>
+                <Text style={styles.tourOverlayNextTitle}>{tourTransition.nextStep.title}</Text>
+              </>
+            ) : (
+              <Text style={styles.tourOverlayNextLabel}>All steps done!</Text>
+            )}
+            <Text style={styles.tourOverlayTap}>Tap to continue →</Text>
+          </View>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screenWrap: { flex: 1 },
+  tourOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(11,14,19,0.80)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 200,
+  },
+  tourOverlayCard: {
+    backgroundColor: palette.white,
+    borderRadius: 20,
+    paddingVertical: 32,
+    paddingHorizontal: 28,
+    alignItems: 'center',
+    width: '78%',
+    maxWidth: 320,
+  },
+  tourOverlayCheck: {
+    fontSize: 44,
+    color: '#22C55E',
+    marginBottom: 8,
+  },
+  tourOverlayDoneText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: palette.ink,
+    textAlign: 'center',
+  },
+  tourOverlayNextLabel: {
+    fontSize: 11,
+    color: palette.muted,
+    marginTop: 20,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  tourOverlayNextTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: palette.ink,
+    textAlign: 'center',
+  },
+  tourOverlayTap: {
+    fontSize: 12,
+    color: palette.muted,
+    marginTop: 20,
+  },
 
   // ── Animated stat tiles ──
   statRow: {

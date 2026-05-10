@@ -996,11 +996,12 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('Unsupported role.');
         }
 
-        // Delete all other sessions for this identity
+        // Delete all OTHER sessions for this identity (keep current so fetchAppState succeeds)
         await prisma.authSession.deleteMany({
           where: {
             role,
             phone: identity.phone,
+            id: { not: resolvedSession.id },
           },
         });
 
