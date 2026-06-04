@@ -91,7 +91,7 @@ useEffect(() => {
         const message = normalizeError(error);
 
         // Ignore auth errors silently (user not logged in)
-        if (!/authentication required|session|token/i.test(message)) {
+        if (!/authentication required|session|token|expired|log in again/i.test(message)) {
           throw error;
         }
       }

@@ -738,7 +738,12 @@ function createRentBackend(options = {}) {
 
     async getSessionForAccessToken(accessToken) {
       return run(async () => {
-        const payload = verifyToken(accessToken);
+        let payload;
+        try {
+          payload = verifyToken(accessToken);
+        } catch (_jwtError) {
+          throw new Error('Your session has expired. Please log in again.');
+        }
 
         if (payload.typ !== 'access') {
           throw new Error('Invalid access token.');
@@ -1256,7 +1261,12 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
     },
     async refreshAuth({ refreshToken }) {
       return run(async () => {
-        const payload = verifyToken(refreshToken);
+        let payload;
+        try {
+          payload = verifyToken(refreshToken);
+        } catch (_jwtError) {
+          throw new Error('Your session has expired. Please log in again.');
+        }
 
         if (payload.typ !== 'refresh') {
           throw new Error('Invalid refresh token.');
