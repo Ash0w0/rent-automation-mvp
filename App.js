@@ -106,6 +106,8 @@ export default function App() {
                   onForgotPasswordReset={actions.forgotPasswordReset}
                   isBusy={state.isSyncing}
                   backendError={state.backendError}
+                  loginHint={state.loginHint}
+                  onClearLoginHint={actions.clearLoginHint}
                 />
               ) : state.mustChangePassword ? (
                 <ChangePasswordScreen
@@ -113,7 +115,6 @@ export default function App() {
                   isBusy={state.isSyncing}
                   backendError={state.backendError}
                   forced
-                  onLogout={actions.logout}
                 />
               ) : state.session.role === 'super_admin' ? (
                 <SuperAdminWorkspace state={state} actions={actions} onLogout={actions.logout} />

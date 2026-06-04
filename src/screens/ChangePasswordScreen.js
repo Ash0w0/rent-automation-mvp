@@ -258,7 +258,7 @@ export function ChangePasswordScreen({
             disabled={submitting}
           />
 
-          {onLogout ? (
+          {onLogout && !forced ? (
             <Pressable
               onPress={onLogout}
               android_ripple={{ color: 'rgba(11,14,19,0.10)', borderless: true }}

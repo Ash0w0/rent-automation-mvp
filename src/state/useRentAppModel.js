@@ -46,6 +46,7 @@ function createInitialState() {
     isHydrating: true,
     isSyncing: false,
     backendError: null,
+    loginHint: null,
   };
 }
 
@@ -232,14 +233,27 @@ useEffect(() => {
       }
     },
 
-    changePassword(currentPassword, newPassword) {
-      return runServerAction(
-        async () => {
-          await changePassword(currentPassword, newPassword);
-          return await fetchAppState();
-        },
-        { preserveSession: true, mustChangePassword: false },
-      );
+    async changePassword(currentPassword, newPassword) {
+      setState((currentState) => ({ ...currentState, isSyncing: true, backendError: null }));
+      try {
+        await changePassword(currentPassword, newPassword);
+        await logoutSession();
+        setState((currentState) => ({
+          ...currentState,
+          session: emptySession,
+          mustChangePassword: false,
+          isSyncing: false,
+          backendError: null,
+          loginHint: 'Password updated — sign in with your new password.',
+        }));
+      } catch (error) {
+        setState((currentState) => ({
+          ...currentState,
+          isSyncing: false,
+          backendError: normalizeError(error),
+        }));
+        throw error;
+      }
     },
 
     async logout() {
@@ -251,6 +265,10 @@ useEffect(() => {
         isSyncing: false,
         backendError: null,
       }));
+    },
+
+    clearLoginHint() {
+      setState((currentState) => ({ ...currentState, loginHint: null }));
     },
 
     updateProperty(payload) {
