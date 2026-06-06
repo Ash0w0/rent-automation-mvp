@@ -255,7 +255,7 @@ export function PageHeader({ eyebrow, title, subtitle, highlights = [], actionLa
 
 const BANNER_ICONS = { info: 'ⓘ', success: '✓', warning: '!', danger: '⚠' };
 
-export function Banner({ message, tone = 'info' }) {
+export function Banner({ message, tone = 'info', onDismiss = null }) {
   const colors = getBannerTone(tone);
   const opacity = useSharedValue(0);
   const ty = useSharedValue(-6);
@@ -284,6 +284,11 @@ export function Banner({ message, tone = 'info' }) {
         <Text style={styles.bannerIconText}>{icon}</Text>
       </View>
       <Text style={[styles.bannerText, { color: colors.color }]}>{message}</Text>
+      {onDismiss ? (
+        <Pressable onPress={onDismiss} hitSlop={8} style={styles.bannerDismiss}>
+          <Text style={[styles.bannerDismissText, { color: colors.color }]}>✕</Text>
+        </Pressable>
+      ) : null}
     </Animated.View>
   );
 }
@@ -877,6 +882,8 @@ const styles = StyleSheet.create({
   },
   bannerIconText: { fontSize: 13, fontWeight: '900', color: palette.white, lineHeight: 16 },
   bannerText: { flex: 1, fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  bannerDismiss: { paddingLeft: 8 },
+  bannerDismissText: { fontSize: 14, fontWeight: '700' },
 
   // Tab strip
   tabStrip: {

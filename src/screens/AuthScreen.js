@@ -85,6 +85,8 @@ export function AuthScreen({
   onForgotPasswordReset,
   isBusy = false,
   backendError = null,
+  loginHint = null,
+  onClearLoginHint = null,
 }) {
   const [mode, setMode] = useState(MODES.LOGIN);
   const [phone, setPhone] = useState('');
@@ -267,8 +269,9 @@ export function AuthScreen({
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
 
-          {serverMessage ? <Banner tone={serverMessage.tone} message={serverMessage.text} /> : null}
-          {!serverMessage && backendError ? <Banner tone="danger" message={backendError} /> : null}
+          {loginHint ? <Banner tone="success" message={loginHint} onDismiss={onClearLoginHint} /> : null}
+          {!loginHint && serverMessage ? <Banner tone={serverMessage.tone} message={serverMessage.text} /> : null}
+          {!loginHint && !serverMessage && backendError ? <Banner tone="danger" message={backendError} /> : null}
 
           <ModeFader mode={mode}>
             <View style={styles.formBlock}>
