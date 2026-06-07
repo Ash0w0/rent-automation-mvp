@@ -1183,53 +1183,119 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               isAllClear: true,
             };
 
-  const ownerQueue = [
-    pendingSubmissions.length
-      ? {
-          title: `${pendingSubmissions.length} final approval${pendingSubmissions.length > 1 ? 's' : ''}`,
-          meta: 'Ready to review',
-          badge: 'PENDING_REVIEW',
-          actionLabel: 'Review',
-          onPress: () => openTask({ tab: 'rent', mode: 'payment-review' }),
-        }
-      : null,
-    invitedTenancies.length
-      ? {
-          title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''} waiting`,
-          meta: 'Agreement pending',
-          badge: 'INVITED',
-          actionLabel: 'Complete',
-          onPress: () => openTask({ tab: 'rooms', mode: 'activate' }),
-        }
-      : null,
-    vacantRooms.length
-      ? {
-          title: `${vacantRooms.length} open room${vacantRooms.length > 1 ? 's' : ''}`,
-          meta: 'Ready to fill',
-          badge: 'VACANT',
-          actionLabel: 'Invite',
-          onPress: () => openTask({ tab: 'rooms', mode: 'invite' }),
-        }
-      : null,
-    overdueInvoices.length
-      ? {
-          title: `${overdueInvoices.length} overdue bill${overdueInvoices.length > 1 ? 's' : ''}`,
-          meta: 'Needs follow-up',
-          badge: 'OVERDUE',
-          actionLabel: 'Track',
+  // Build a chronological "What's next" timeline for the home tab.
+  // Each entry has { title, meta, badge, sortDate, onPress }.
+  // sortDate is ISO YYYY-MM-DD — past/today items float to the top, future items
+  // follow in ascending date order. Cap at 8 so Home stays scannable.
+  const homeTimeline = (() => {
+    const ref = state.referenceDate;
+    const rows = [];
+
+    // 1. Overdue invoices — one row per invoice, sorts to very top (past dates)
+    overdueInvoices.forEach((invoice) => {
+      const room = getRoom(invoice.roomId);
+      rows.push({
+        key: `overdue-${invoice.id}`,
+        title: `Room ${room?.label || '-'} rent overdue`,
+        meta: formatDueWindow(ref, invoice.dueDate),
+        badge: 'OVERDUE',
+        sortDate: invoice.dueDate,
+        onPress: () => openTask({ tab: 'rent', mode: 'ledger' }),
+      });
+    });
+
+    // 2. Pending final approvals — rollup, sortDate = today
+    if (pendingSubmissions.length) {
+      rows.push({
+        key: 'approvals',
+        title: `${pendingSubmissions.length} final approval${pendingSubmissions.length > 1 ? 's' : ''} waiting`,
+        meta: 'Ready to review',
+        badge: 'PENDING_REVIEW',
+        sortDate: ref,
+        onPress: () => openTask({ tab: 'rent', mode: 'payment-review' }),
+      });
+    }
+
+    // 3. Move-ins waiting for agreement — rollup, sortDate = today
+    if (invitedTenancies.length) {
+      rows.push({
+        key: 'invited',
+        title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''} waiting`,
+        meta: 'Agreement pending',
+        badge: 'INVITED',
+        sortDate: ref,
+        onPress: () => openTask({ tab: 'rooms', mode: 'activate' }),
+      });
+    }
+
+    // 4. Vacant rooms — rollup, sortDate = today (ongoing, no deadline)
+    if (vacantRooms.length) {
+      rows.push({
+        key: 'vacant',
+        title: `${vacantRooms.length} open room${vacantRooms.length > 1 ? 's' : ''}`,
+        meta: 'Ready to fill',
+        badge: 'VACANT',
+        sortDate: ref,
+        onPress: () => openTask({ tab: 'rooms', mode: 'invite' }),
+      });
+    }
+
+    // 5. Due (not overdue) invoices — one row per invoice, future dates
+    const invoiceIdsInTimeline = new Set(overdueInvoices.map((inv) => inv.id));
+    dueInvoices.forEach((invoice) => {
+      if (invoiceIdsInTimeline.has(invoice.id)) return;
+      invoiceIdsInTimeline.add(invoice.id);
+      const room = getRoom(invoice.roomId);
+      rows.push({
+        key: `due-${invoice.id}`,
+        title: `Room ${room?.label || '-'} rent due`,
+        meta: formatDueWindow(ref, invoice.dueDate),
+        badge: 'DUE',
+        sortDate: invoice.dueDate,
+        onPress: () => openTask({ tab: 'rent', mode: 'ledger' }),
+      });
+    });
+
+    // 6. Scheduled move-outs — one row per tenancy, sorted by moveOutDate
+    moveOutTenancies.forEach((tenancy) => {
+      const room = getRoom(tenancy.roomId);
+      rows.push({
+        key: `moveout-${tenancy.id}`,
+        title: `Room ${room?.label || '-'} moving out`,
+        meta: `On ${formatDate(tenancy.moveOutDate)}`,
+        badge: 'MOVE_OUT_SCHEDULED',
+        sortDate: tenancy.moveOutDate,
+        onPress: () => openTask({ tab: 'rooms', mode: 'moveout' }),
+      });
+    });
+
+    // 7. Upcoming reminders (SCHEDULED or READY, triggerDate >= today), deduped
+    state.reminders
+      .filter(
+        (reminder) =>
+          ['SCHEDULED', 'READY'].includes(reminder.deliveryStatus) &&
+          reminder.triggerDate >= ref &&
+          !invoiceIdsInTimeline.has(reminder.invoiceId),
+      )
+      .forEach((reminder) => {
+        invoiceIdsInTimeline.add(reminder.invoiceId);
+        const invoice = invoices.find((inv) => inv.id === reminder.invoiceId);
+        const room = invoice ? getRoom(invoice.roomId) : null;
+        rows.push({
+          key: `reminder-${reminder.id}`,
+          title: `Reminder: Room ${room?.label || '-'} rent`,
+          meta: `Scheduled for ${formatDate(reminder.triggerDate)}`,
+          badge: 'DUE',
+          sortDate: reminder.triggerDate,
           onPress: () => openTask({ tab: 'rent', mode: 'ledger' }),
-        }
-      : null,
-    moveOutTenancies.length
-      ? {
-          title: `${moveOutTenancies.length} planned move-out${moveOutTenancies.length > 1 ? 's' : ''}`,
-          meta: `Next: Room ${getRoom(moveOutTenancies[0].roomId)?.label || '-'}`,
-          badge: 'MOVE_OUT_SCHEDULED',
-          actionLabel: 'Manage',
-          onPress: () => openTask({ tab: 'rooms', mode: 'moveout' }),
-        }
-      : null,
-  ].filter(Boolean);
+        });
+      });
+
+    // Sort ascending by sortDate (past/today first, then nearest future)
+    rows.sort((a, b) => compareIsoDates(a.sortDate, b.sortDate));
+
+    return rows.slice(0, 8);
+  })();
 
   const refreshAction = useAsyncAction(() => actions.refresh());
 
@@ -1782,17 +1848,17 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               <SetupTourCard steps={setupTourSteps} onOpen={openTourStep} />
             ) : null}
 
-            {ownerQueue.length ? (
-              <SectionCard title="Action queue">
+            {homeTimeline.length ? (
+              <SectionCard title="What's next">
                 <View style={styles.stack}>
-                  {ownerQueue.map((item, index) => (
-                    <AnimatedQueueItem key={item.title} item={item} index={index} />
+                  {homeTimeline.map((item, index) => (
+                    <AnimatedQueueItem key={item.key} item={item} index={index} />
                   ))}
                 </View>
               </SectionCard>
             ) : (
               <SectionCard title="All clear">
-                <EmptyState title="No urgent work" description="Everything is up to date." />
+                <EmptyState title="Nothing scheduled" description="No upcoming dues, move-outs, or reminders." />
               </SectionCard>
             )}
 
