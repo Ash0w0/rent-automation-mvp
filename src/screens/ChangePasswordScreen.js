@@ -16,6 +16,7 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { Banner, Field, PrimaryButton, palette, elevation } from '../components/uiAirbnb';
+import { useToast } from '../components/ToastHost';
 import { useAndroidBackHandler } from '../hooks/useAndroidBackHandler';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { spring as springTokens, haptic } from '../lib/motion';
@@ -106,6 +107,7 @@ export function ChangePasswordScreen({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [serverMessage, setServerMessage] = useState(null);
+  const toast = useToast();
 
   const newPasswordRef = useRef(null);
   const confirmRef = useRef(null);
@@ -137,8 +139,7 @@ export function ChangePasswordScreen({
     setServerMessage(null);
     await onChangePassword(currentPassword, newPassword);
     haptic.success();
-    // Redirect to login so the owner signs in with their new password
-    onLogout?.();
+    toast.show({ tone: 'success', message: 'Password updated successfully.' });
   });
 
   const handleSubmit = async () => {

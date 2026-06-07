@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing as RNEasing,
   cancelAnimation,
@@ -406,7 +406,7 @@ function ManagementActionCard({ action, isActive }) {
 }
 
 // Payment review card with approve/reject
-function PaymentReviewCard({ submission, invoice, tenant, room, meterReading, onApprove, onReject }) {
+function PaymentReviewCard({ submission, invoice, tenant, room, meterReading, onApprove, onReject, onEditReading }) {
   const anim = useEntryAnimation(0);
   return (
     <Animated.View style={[styles.paymentCard, anim]}>
@@ -467,10 +467,17 @@ function PaymentReviewCard({ submission, invoice, tenant, room, meterReading, on
         {meterReading ? (
           <View style={styles.paymentMetaRow}>
             <Text style={styles.paymentMetaLabel}>Meter</Text>
-            <Text style={styles.paymentMetaValue}>
-              {meterReading.openingReading} → {meterReading.closingReading}{' '}
-              ({meterReading.closingReading - meterReading.openingReading} units)
-            </Text>
+            <View style={styles.paymentMetaValueRow}>
+              <Text style={styles.paymentMetaValue}>
+                {meterReading.openingReading} → {meterReading.closingReading}{' '}
+                ({meterReading.closingReading - meterReading.openingReading} units)
+              </Text>
+              {onEditReading ? (
+                <Pressable onPress={() => onEditReading(meterReading)} style={styles.editReadingBtn}>
+                  <Text style={styles.editReadingBtnText}>✎ Edit</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         ) : null}
       </View>
@@ -762,6 +769,11 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [moveOutForm, setMoveOutForm] = useState({ tenancyId: '', moveOutDate: state.referenceDate });
   const [tourTransition, setTourTransition] = useState(null);
   const prevNextKeyRef = useRef(null);
+  const [tenantEditTarget, setTenantEditTarget] = useState(null);
+  const [tenantEditForm, setTenantEditForm] = useState({ fullName: '', phone: '' });
+  const [editReadingTarget, setEditReadingTarget] = useState(null);
+  const [editReadingValue, setEditReadingValue] = useState('');
+  const [markPaidConfirmId, setMarkPaidConfirmId] = useState(null);
 
   const getTenant = (tenantId) => state.tenants.find((tenant) => tenant.id === tenantId);
   const getRoom = (roomId) => state.rooms.find((room) => room.id === roomId);
@@ -1259,25 +1271,41 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                   <StatusBadge label={room.status} />
                 </View>
                 <KeyValueRow label="Resident" value={tenant ? tenant.fullName : 'Available'} />
+                {tenant ? <KeyValueRow label="Phone" value={tenant.phone} /> : null}
                 <KeyValueRow label="Floor" value={room.floor} />
                 <KeyValueRow label="Meter" value={`${meter?.serialNumber || '-'} | ${meter?.lastReading ?? '-'}`} />
                 {tenant ? (
-                  <PrimaryButton
-                    label="Reset password"
-                    tone="secondary"
-                    compact
-                    onPress={() => handleAction(async () => {
-                      const result = await actions.resetTenantPassword(tenant.id);
-                      if (result?.tempPassword) {
-                        setShareDetails({
-                          tempPassword: result.tempPassword,
-                          recipientName: result.tenant?.fullName || tenant.fullName,
-                          recipientPhone: result.tenant?.phone || tenant.phone,
-                          role: 'tenant',
-                        });
-                      }
-                    }, 'Password reset.')}
-                  />
+                  <View style={styles.twoColBtns}>
+                    <View style={{ flex: 1 }}>
+                      <PrimaryButton
+                        label="Edit tenant"
+                        tone="secondary"
+                        compact
+                        onPress={() => {
+                          setTenantEditTarget(tenant);
+                          setTenantEditForm({ fullName: tenant.fullName, phone: tenant.phone?.replace(/^\+91/, '') || '' });
+                        }}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <PrimaryButton
+                        label="Reset password"
+                        tone="secondary"
+                        compact
+                        onPress={() => handleAction(async () => {
+                          const result = await actions.resetTenantPassword(tenant.id);
+                          if (result?.tempPassword) {
+                            setShareDetails({
+                              tempPassword: result.tempPassword,
+                              recipientName: result.tenant?.fullName || tenant.fullName,
+                              recipientPhone: result.tenant?.phone || tenant.phone,
+                              role: 'tenant',
+                            });
+                          }
+                        }, 'Password reset.')}
+                      />
+                    </View>
+                  </View>
                 ) : null}
               </View>
             );
@@ -1408,6 +1436,32 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                     <Text style={styles.ledgerMetaDivider}>·</Text>
                     <Text style={styles.ledgerMetaText}>{invoice.reminderState}</Text>
                   </View>
+                  {['DUE', 'OVERDUE'].includes(invoice.derivedStatus) ? (
+                    markPaidConfirmId === invoice.id ? (
+                      <View style={styles.twoColBtns}>
+                        <View style={{ flex: 1 }}>
+                          <PrimaryButton
+                            label="Confirm paid"
+                            compact
+                            onPress={() => {
+                              setMarkPaidConfirmId(null);
+                              handleAction(() => actions.markInvoicePaid(invoice.id), 'Marked as paid.');
+                            }}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <PrimaryButton label="Cancel" tone="secondary" compact onPress={() => setMarkPaidConfirmId(null)} />
+                        </View>
+                      </View>
+                    ) : (
+                      <PrimaryButton
+                        label="Mark as paid"
+                        tone="secondary"
+                        compact
+                        onPress={() => setMarkPaidConfirmId(invoice.id)}
+                      />
+                    )
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -1451,6 +1505,10 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                         'Rejected.',
                       )
                     }
+                    onEditReading={meterReading?.status === 'PENDING_REVIEW' ? (reading) => {
+                      setEditReadingTarget(reading);
+                      setEditReadingValue(String(reading.closingReading));
+                    } : null}
                   />
                 );
               })}
@@ -1549,12 +1607,6 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               </SectionCard>
             )}
 
-            <SectionCard title="Property info">
-              <KeyValueRow label="Payout UPI" value={upiId} />
-              <KeyValueRow label="Electricity rate" value={`₹${defaultTariff}/unit`} />
-              <KeyValueRow label="Pending approvals" value={String(summary.finalApprovals)} />
-              <KeyValueRow label="Leaving soon" value={String(summary.leavingSoon)} />
-            </SectionCard>
           </>
         ) : null}
 
@@ -1670,6 +1722,103 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         role={shareDetails?.role}
         inviterName={state.owner?.name || 'Owner'}
       />
+
+      {/* Tenant edit modal */}
+      <Modal
+        visible={Boolean(tenantEditTarget)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTenantEditTarget(null)}
+      >
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setTenantEditTarget(null)} />
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit tenant</Text>
+              <Pressable onPress={() => setTenantEditTarget(null)} hitSlop={12}>
+                <Text style={styles.modalClose}>×</Text>
+              </Pressable>
+            </View>
+            <Field
+              label="Full name"
+              value={tenantEditForm.fullName}
+              onChangeText={(v) => setTenantEditForm((c) => ({ ...c, fullName: v }))}
+              placeholder="Tenant full name"
+            />
+            <Field
+              label="Phone (digits only)"
+              value={tenantEditForm.phone}
+              onChangeText={(v) => setTenantEditForm((c) => ({ ...c, phone: v.replace(/\D+/g, '').slice(0, 10) }))}
+              placeholder="10-digit mobile number"
+              keyboardType="phone-pad"
+            />
+            <PrimaryButton
+              label="Save changes"
+              loading={state.isSyncing}
+              disabled={state.isSyncing}
+              onPress={async () => {
+                try {
+                  const phone = tenantEditForm.phone ? `+91${tenantEditForm.phone}` : undefined;
+                  await actions.updateTenant(tenantEditTarget.id, {
+                    fullName: tenantEditForm.fullName || undefined,
+                    phone,
+                  });
+                  setTenantEditTarget(null);
+                  toast.show({ tone: 'success', message: 'Tenant details updated.' });
+                } catch (error) {
+                  toast.show({ tone: 'danger', message: error.message });
+                }
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit reading modal */}
+      <Modal
+        visible={Boolean(editReadingTarget)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditReadingTarget(null)}
+      >
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setEditReadingTarget(null)} />
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Correct meter reading</Text>
+              <Pressable onPress={() => setEditReadingTarget(null)} hitSlop={12}>
+                <Text style={styles.modalClose}>×</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.modalHelperText}>
+              Opening reading: {editReadingTarget?.openingReading}
+            </Text>
+            <Field
+              label="Closing reading"
+              value={editReadingValue}
+              onChangeText={setEditReadingValue}
+              placeholder="Enter corrected value"
+              keyboardType="numeric"
+            />
+            <PrimaryButton
+              label="Save correction"
+              loading={state.isSyncing}
+              disabled={state.isSyncing}
+              onPress={async () => {
+                try {
+                  await actions.updateMeterReading(editReadingTarget.id, { reading: editReadingValue });
+                  setEditReadingTarget(null);
+                  toast.show({ tone: 'success', message: 'Reading corrected.' });
+                } catch (error) {
+                  toast.show({ tone: 'danger', message: error.message });
+                }
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
 
       {tourTransition ? (
         <Pressable
@@ -2238,4 +2387,44 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: palette.surface,
   },
+
+  twoColBtns: { flexDirection: 'row', gap: 8 },
+
+  paymentMetaValueRow: { flexDirection: 'row', alignItems: 'center', flex: 1, flexWrap: 'wrap', gap: 6 },
+  editReadingBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: palette.surfaceTint,
+  },
+  editReadingBtnText: { color: palette.accentDeep, fontSize: 12, fontWeight: '700' },
+
+  modalRoot: { flex: 1, justifyContent: 'flex-end' },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  modalSheet: {
+    backgroundColor: palette.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 14,
+    paddingBottom: 40,
+    gap: 14,
+    ...elevation.e3,
+  },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: palette.border,
+    marginBottom: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: palette.ink },
+  modalClose: { fontSize: 26, color: palette.muted, lineHeight: 30, fontWeight: '400' },
+  modalHelperText: { fontSize: 13, color: palette.muted, fontWeight: '600' },
 });

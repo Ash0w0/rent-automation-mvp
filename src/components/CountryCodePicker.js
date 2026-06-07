@@ -28,11 +28,15 @@ export function CountryCodePicker({
         </Pressable>
         <TextInput
           value={phone}
-          onChangeText={onPhoneChange}
+          onChangeText={(value) => {
+            const maxLength = selected.maxLength;
+            onPhoneChange(value.replace(/\D+/g, '').slice(0, maxLength));
+          }}
           placeholder={placeholder}
           placeholderTextColor={palette.mutedSoft}
           keyboardType="phone-pad"
           selectionColor={palette.accent}
+          maxLength={selected.maxLength}
           style={styles.phoneInput}
         />
       </View>

@@ -336,6 +336,26 @@ function closeTenancy(tenancyId) {
   });
 }
 
+function updateTenant(tenantId, payload) {
+  return requestJson(`/api/tenants/${tenantId}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+function updateMeterReading(readingId, payload) {
+  return requestJson(`/api/readings/${readingId}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+function markInvoicePaid(invoiceId) {
+  return requestJson(`/api/invoices/${invoiceId}/mark-paid`, {
+    method: 'POST',
+  });
+}
+
 module.exports = {
   addRoom,
   activateTenancy,
@@ -368,5 +388,8 @@ module.exports = {
   updateProperty,
   updateReminderStatus,
   updateSettlement,
+  updateTenant,
+  updateMeterReading,
+  markInvoicePaid,
   verifyOtp,
 };

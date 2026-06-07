@@ -613,14 +613,14 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
               </View>
             </View>
             <View style={styles.divider} />
-            <KeyValueRow label="Agreement" value={contract ? 'Active' : 'Pending'} />
+            {!contract ? <KeyValueRow label="Agreement" value="Pending" /> : null}
             <KeyValueRow
               label="This month"
               value={activeInvoice ? formatInvoiceStateLabel(activeInvoice.derivedStatus) : 'Reading not submitted'}
             />
           </SectionCard>
 
-          {renderActivityCard()}
+          {events.length > 0 ? renderActivityCard() : null}
         </>
       ) : null}
 

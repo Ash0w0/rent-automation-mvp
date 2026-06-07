@@ -1651,6 +1651,125 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
       });
     },
 
+    async updateTenantDetails(tenantId, input, session) {
+      return run(async () => {
+        requireOwnerSession(session);
+        const tenant = requireRecord(
+          await prisma.tenant.findUnique({ where: { id: tenantId } }),
+          'Tenant not found.',
+        );
+
+        const data = {};
+
+        if (input.fullName !== undefined) {
+          if (!input.fullName || !String(input.fullName).trim()) {
+            throw new Error('Tenant name is required.');
+          }
+          data.fullName = String(input.fullName).trim();
+        }
+
+        if (input.phone !== undefined) {
+          const normalizedPhone = normalizePhoneNumber(String(input.phone || ''));
+          if (!normalizedPhone) {
+            throw new Error('A valid phone number is required.');
+          }
+          const candidates = buildPhoneCandidates(normalizedPhone);
+          const existing = await prisma.tenant.findFirst({
+            where: { phone: { in: candidates }, id: { not: tenantId } },
+            select: { id: true },
+          });
+          if (existing) {
+            throw new Error('This phone number is already registered. Please use a different number.');
+          }
+          data.phone = normalizedPhone;
+        }
+
+        if (Object.keys(data).length === 0) {
+          throw new Error('No fields to update.');
+        }
+
+        await prisma.tenant.update({ where: { id: tenantId }, data });
+        await recordAudit(prisma, 'Tenant details updated', `Name/phone updated for ${tenant.fullName}.`);
+        return getState(prisma, session);
+      });
+    },
+
+    async updateMeterReading(readingId, input, session) {
+      return run(async () => {
+        requireOwnerSession(session);
+        const reading = requireRecord(
+          await prisma.meterReading.findUnique({ where: { id: readingId } }),
+          'Meter reading not found.',
+        );
+
+        if (reading.status !== METER_READING_STATUS.PENDING_REVIEW) {
+          throw new Error('Only readings that are pending review can be corrected.');
+        }
+
+        const newValue = parseFloat(input.reading);
+        if (isNaN(newValue) || newValue < 0) {
+          throw new Error('Enter a valid meter reading value.');
+        }
+
+        await prisma.meterReading.update({
+          where: { id: readingId },
+          data: {
+            closingReading: newValue,
+            reviewerNote: input.note || 'Corrected by owner.',
+          },
+        });
+
+        await recordAudit(prisma, 'Meter reading corrected', `Reading corrected to ${newValue} by owner.`);
+        return getState(prisma, session);
+      });
+    },
+
+    async markInvoicePaid(invoiceId, session) {
+      return run(async () => {
+        requireOwnerSession(session);
+        const invoice = requireRecord(
+          await prisma.invoice.findUnique({ where: { id: invoiceId } }),
+          'Invoice not found.',
+        );
+
+        if (!['DUE', 'OVERDUE'].includes(invoice.status)) {
+          throw new Error('Only due or overdue invoices can be marked as paid.');
+        }
+
+        const submissionId = makeId('submission');
+
+        await prisma.$transaction(async (tx) => {
+          await tx.paymentSubmission.create({
+            data: {
+              id: submissionId,
+              invoiceId: invoice.id,
+              tenantId: invoice.tenantId,
+              status: 'APPROVED',
+              utr: 'MANUAL',
+              screenshotLabel: '',
+              note: 'Marked as paid manually by owner.',
+              submittedAt: getTodayIso(),
+              reviewedAt: getTodayIso(),
+              reviewerNote: 'Marked as paid manually by owner.',
+            },
+          });
+
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: {
+              status: INVOICE_STATUS.PAID,
+              paymentSubmissionId: submissionId,
+              paidAt: getTodayIso(),
+            },
+          });
+
+          await recordAudit(tx, 'Invoice marked as paid', `Invoice ${invoice.month} was manually marked as paid by the owner.`);
+        });
+
+        return getState(prisma, session);
+      });
+    },
+
     async activateTenancy(tenancyId, contractInput, session) {
       return run(async () => {
         requireOwnerSession(session);
