@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StatusBar as RNStatusBar, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 import { Banner, Field, palette } from '../components/uiAirbnb';
@@ -176,7 +176,7 @@ export function SuperAdminWorkspace({ state, actions, onLogout }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.backgroundWarm || '#EEF4F3' },
-  content: { padding: 22, gap: 16 },
+  content: { padding: 22, paddingTop: (Platform.OS === 'android' ? (RNStatusBar.currentHeight || 24) : 12) + 8, gap: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 24, fontWeight: '800', color: '#1F2733' },
   logout: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#1F2733' },

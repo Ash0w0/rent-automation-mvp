@@ -260,6 +260,36 @@ function createApp(backend) {
       .json(await backend.closeTenancy(request.params.tenancyId, request.authSession));
   });
 
+  app.patch('/api/tenants/:tenantId', async (request, response) => {
+    response
+      .status(200)
+      .json(
+        await backend.updateTenantDetails(
+          request.params.tenantId,
+          request.body || {},
+          request.authSession,
+        ),
+      );
+  });
+
+  app.patch('/api/readings/:readingId', async (request, response) => {
+    response
+      .status(200)
+      .json(
+        await backend.updateMeterReading(
+          request.params.readingId,
+          request.body || {},
+          request.authSession,
+        ),
+      );
+  });
+
+  app.post('/api/invoices/:invoiceId/mark-paid', async (request, response) => {
+    response
+      .status(200)
+      .json(await backend.markInvoicePaid(request.params.invoiceId, request.authSession));
+  });
+
   app.use((request, response) => {
     response.status(404).json({
       error: 'Route not found.',

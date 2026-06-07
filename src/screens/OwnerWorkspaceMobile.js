@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing as RNEasing,
   cancelAnimation,
@@ -37,6 +37,8 @@ import { useAndroidBackHandler } from '../hooks/useAndroidBackHandler';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { pickImageUpload } from '../lib/imageUploads';
 import { TempPasswordShareModal } from '../components/TempPasswordShareModal';
+import { QuestionWizard } from '../components/QuestionWizard';
+import { SettingsScreen } from './SettingsScreen';
 import { spring as springTokens, haptic, staggerDelay } from '../lib/motion';
 
 const { compareIsoDates, formatCurrency, formatDate, formatMonth, parseIsoDate } = require('../lib/dateUtils');
@@ -406,7 +408,7 @@ function ManagementActionCard({ action, isActive }) {
 }
 
 // Payment review card with approve/reject
-function PaymentReviewCard({ submission, invoice, tenant, room, meterReading, onApprove, onReject }) {
+function PaymentReviewCard({ submission, invoice, tenant, room, meterReading, onApprove, onReject, onEditReading }) {
   const anim = useEntryAnimation(0);
   return (
     <Animated.View style={[styles.paymentCard, anim]}>
@@ -467,10 +469,17 @@ function PaymentReviewCard({ submission, invoice, tenant, room, meterReading, on
         {meterReading ? (
           <View style={styles.paymentMetaRow}>
             <Text style={styles.paymentMetaLabel}>Meter</Text>
-            <Text style={styles.paymentMetaValue}>
-              {meterReading.openingReading} → {meterReading.closingReading}{' '}
-              ({meterReading.closingReading - meterReading.openingReading} units)
-            </Text>
+            <View style={styles.paymentMetaValueRow}>
+              <Text style={styles.paymentMetaValue}>
+                {meterReading.openingReading} → {meterReading.closingReading}{' '}
+                ({meterReading.closingReading - meterReading.openingReading} units)
+              </Text>
+              {onEditReading ? (
+                <Pressable onPress={() => onEditReading(meterReading)} style={styles.editReadingBtn}>
+                  <Text style={styles.editReadingBtnText}>✎ Edit</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         ) : null}
       </View>
@@ -648,69 +657,96 @@ function formatDueWindow(referenceDate, dueDate) {
 // ---------------------------------------------------------------------------
 function OwnerOnboarding({ state, actions, onLogout }) {
   const toast = useToast();
-  const [form, setForm] = useState({
-    name: '',
-    address: '',
-    managerName: state.owner?.name || '',
-    managerPhone: state.owner?.phone || state.session?.phone || '',
-    defaultTariff: '8.5',
-    payeeName: state.owner?.name || '',
-    upiId: '',
-    instructions: 'Use room number and month in your UPI note.',
-  });
+  const [isBusy, setIsBusy] = useState(false);
 
-  const updateField = (key, value) => {
-    setForm((current) => ({ ...current, [key]: value }));
-  };
+  const onboardingSteps = [
+    {
+      key: 'name',
+      question: 'What is the name of your property?',
+      helper: 'This will appear on invoices and reminders.',
+      placeholder: 'e.g. Lotus PG',
+      required: true,
+    },
+    {
+      key: 'address',
+      question: 'What is the property address?',
+      placeholder: 'Full street address',
+      multiline: true,
+      required: false,
+    },
+    {
+      key: 'managerName',
+      question: 'Your name (manager / owner)?',
+      placeholder: 'Full name',
+      defaultValue: state.owner?.name || '',
+    },
+    {
+      key: 'managerPhone',
+      question: 'Your contact phone number?',
+      placeholder: 'Mobile number',
+      keyboardType: 'phone-pad',
+      defaultValue: state.owner?.phone || state.session?.phone || '',
+    },
+    {
+      key: 'defaultTariff',
+      question: 'What is your electricity rate per unit (₹)?',
+      helper: 'e.g. 8.5 means ₹8.50 per kWh',
+      placeholder: '8.5',
+      keyboardType: 'decimal-pad',
+      defaultValue: '8.5',
+      validate: (v) => {
+        const n = parseFloat(v);
+        return (isNaN(n) || n <= 0) ? 'Enter a valid electricity rate.' : null;
+      },
+    },
+    {
+      key: 'payeeName',
+      question: 'Who should tenants pay? (payee name)',
+      placeholder: 'Name on UPI account',
+      defaultValue: state.owner?.name || '',
+    },
+    {
+      key: 'upiId',
+      question: 'What is your UPI ID?',
+      helper: 'Tenants will see this on their invoice.',
+      placeholder: 'name@upi',
+      required: false,
+    },
+  ];
 
-  const createPropertyAction = useAsyncAction(async () => {
-    await actions.createProperty({ ...form, defaultTariff: Number(form.defaultTariff) });
-  });
-
-  const submit = async () => {
+  const handleComplete = async (values) => {
+    setIsBusy(true);
     try {
-      await createPropertyAction.run();
+      await actions.createProperty({
+        name: values.name,
+        address: values.address,
+        managerName: values.managerName,
+        managerPhone: values.managerPhone,
+        defaultTariff: Number(values.defaultTariff),
+        payeeName: values.payeeName,
+        upiId: values.upiId,
+        instructions: 'Use room number and month in your UPI note.',
+      });
     } catch (error) {
       toast.show({ tone: 'danger', message: error.message });
+    } finally {
+      setIsBusy(false);
     }
   };
 
   return (
     <View style={styles.screenWrap}>
-      <ScreenSurface
-        hero={
-          <PageHeader
-            eyebrow="Owner setup"
-            title="Create property"
-            subtitle="Start here. The tour will guide the rest."
-          />
-        }
-      >
-        {state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
-
-        <SectionCard title="Property" tone="accent">
-          <Field label="Property name" value={form.name} onChangeText={(value) => updateField('name', value)} placeholder="Lotus PG" />
-          <Field label="Address" value={form.address} onChangeText={(value) => updateField('address', value)} multiline />
-          <Field label="Manager name" value={form.managerName} onChangeText={(value) => updateField('managerName', value)} />
-          <Field label="Manager phone" value={form.managerPhone} onChangeText={(value) => updateField('managerPhone', value)} keyboardType="phone-pad" autoComplete="tel" />
-          <Field label="Electricity rate" value={form.defaultTariff} onChangeText={(value) => updateField('defaultTariff', value)} keyboardType="decimal-pad" />
-          <PrimaryButton label="Create property" onPress={submit} loading={createPropertyAction.isLoading} disabled={createPropertyAction.isLoading} />
-        </SectionCard>
-
-        <SectionCard title="What's next">
-          <View style={styles.tourList}>
-            {['Add rooms', 'Assign tenants', 'Complete move-ins', 'Track rent'].map((label, index) => (
-              <View key={label} style={styles.tourRow}>
-                <View style={styles.tourStepDot}>
-                  <Text style={styles.tourStepDotText}>{index + 1}</Text>
-                </View>
-                <Text style={styles.tourStepTitle}>{label}</Text>
-              </View>
-            ))}
-          </View>
-          <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
-        </SectionCard>
-      </ScreenSurface>
+      <View style={styles.onboardingHero}>
+        <Text style={styles.onboardingEyebrow}>Owner setup</Text>
+        <Text style={styles.onboardingTitle}>Let's set up your property</Text>
+        <Text style={styles.onboardingSubtitle}>Answer 7 quick questions to get started.</Text>
+      </View>
+      <QuestionWizard
+        steps={onboardingSteps}
+        onComplete={handleComplete}
+        onExit={onLogout}
+        isBusy={isBusy}
+      />
     </View>
   );
 }
@@ -720,6 +756,7 @@ function OwnerOnboarding({ state, actions, onLogout }) {
 // ---------------------------------------------------------------------------
 export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [activeTab, setActiveTab] = useState('home');
+  const [showSettings, setShowSettings] = useState(false);
   const [residentMode, setResidentMode] = useState('rooms');
   const [rentMode, setRentMode] = useState('ledger');
   const [profileMode, setProfileMode] = useState('property');
@@ -762,6 +799,19 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [moveOutForm, setMoveOutForm] = useState({ tenancyId: '', moveOutDate: state.referenceDate });
   const [tourTransition, setTourTransition] = useState(null);
   const prevNextKeyRef = useRef(null);
+  const [addTenantStep, setAddTenantStep] = useState('room');
+  const [addTenantForm, setAddTenantForm] = useState({
+    isNewRoom: true, existingRoomId: '',
+    label: '', floor: '1', serialNumber: '', openingReading: '0',
+    fullName: '', phone: '',
+    rentAmount: '', depositAmount: '', dueDay: '5',
+    moveInDate: '', contractStart: '', contractEnd: '',
+  });
+  const [tenantEditTarget, setTenantEditTarget] = useState(null);
+  const [tenantEditForm, setTenantEditForm] = useState({ fullName: '', phone: '' });
+  const [editReadingTarget, setEditReadingTarget] = useState(null);
+  const [editReadingValue, setEditReadingValue] = useState('');
+  const [markPaidConfirmId, setMarkPaidConfirmId] = useState(null);
 
   const getTenant = (tenantId) => state.tenants.find((tenant) => tenant.id === tenantId);
   const getRoom = (roomId) => state.rooms.find((room) => room.id === roomId);
@@ -1052,6 +1102,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     invite: { title: 'Invite tenant', subtitle: '' },
     activate: { title: 'Move-in', subtitle: '' },
     moveout: { title: 'Move out', subtitle: '' },
+    addTenant: { title: 'Add tenant — guided', subtitle: '' },
   };
 
   const moveInPipelineActions = [
@@ -1132,53 +1183,119 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               isAllClear: true,
             };
 
-  const ownerQueue = [
-    pendingSubmissions.length
-      ? {
-          title: `${pendingSubmissions.length} final approval${pendingSubmissions.length > 1 ? 's' : ''}`,
-          meta: 'Ready to review',
-          badge: 'PENDING_REVIEW',
-          actionLabel: 'Review',
-          onPress: () => openTask({ tab: 'rent', mode: 'payment-review' }),
-        }
-      : null,
-    invitedTenancies.length
-      ? {
-          title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''} waiting`,
-          meta: 'Agreement pending',
-          badge: 'INVITED',
-          actionLabel: 'Complete',
-          onPress: () => openTask({ tab: 'rooms', mode: 'activate' }),
-        }
-      : null,
-    vacantRooms.length
-      ? {
-          title: `${vacantRooms.length} open room${vacantRooms.length > 1 ? 's' : ''}`,
-          meta: 'Ready to fill',
-          badge: 'VACANT',
-          actionLabel: 'Invite',
-          onPress: () => openTask({ tab: 'rooms', mode: 'invite' }),
-        }
-      : null,
-    overdueInvoices.length
-      ? {
-          title: `${overdueInvoices.length} overdue bill${overdueInvoices.length > 1 ? 's' : ''}`,
-          meta: 'Needs follow-up',
-          badge: 'OVERDUE',
-          actionLabel: 'Track',
+  // Build a chronological "What's next" timeline for the home tab.
+  // Each entry has { title, meta, badge, sortDate, onPress }.
+  // sortDate is ISO YYYY-MM-DD — past/today items float to the top, future items
+  // follow in ascending date order. Cap at 8 so Home stays scannable.
+  const homeTimeline = (() => {
+    const ref = state.referenceDate;
+    const rows = [];
+
+    // 1. Overdue invoices — one row per invoice, sorts to very top (past dates)
+    overdueInvoices.forEach((invoice) => {
+      const room = getRoom(invoice.roomId);
+      rows.push({
+        key: `overdue-${invoice.id}`,
+        title: `Room ${room?.label || '-'} rent overdue`,
+        meta: formatDueWindow(ref, invoice.dueDate),
+        badge: 'OVERDUE',
+        sortDate: invoice.dueDate,
+        onPress: () => openTask({ tab: 'rent', mode: 'ledger' }),
+      });
+    });
+
+    // 2. Pending final approvals — rollup, sortDate = today
+    if (pendingSubmissions.length) {
+      rows.push({
+        key: 'approvals',
+        title: `${pendingSubmissions.length} final approval${pendingSubmissions.length > 1 ? 's' : ''} waiting`,
+        meta: 'Ready to review',
+        badge: 'PENDING_REVIEW',
+        sortDate: ref,
+        onPress: () => openTask({ tab: 'rent', mode: 'payment-review' }),
+      });
+    }
+
+    // 3. Move-ins waiting for agreement — rollup, sortDate = today
+    if (invitedTenancies.length) {
+      rows.push({
+        key: 'invited',
+        title: `${invitedTenancies.length} move-in${invitedTenancies.length > 1 ? 's' : ''} waiting`,
+        meta: 'Agreement pending',
+        badge: 'INVITED',
+        sortDate: ref,
+        onPress: () => openTask({ tab: 'rooms', mode: 'activate' }),
+      });
+    }
+
+    // 4. Vacant rooms — rollup, sortDate = today (ongoing, no deadline)
+    if (vacantRooms.length) {
+      rows.push({
+        key: 'vacant',
+        title: `${vacantRooms.length} open room${vacantRooms.length > 1 ? 's' : ''}`,
+        meta: 'Ready to fill',
+        badge: 'VACANT',
+        sortDate: ref,
+        onPress: () => openTask({ tab: 'rooms', mode: 'invite' }),
+      });
+    }
+
+    // 5. Due (not overdue) invoices — one row per invoice, future dates
+    const invoiceIdsInTimeline = new Set(overdueInvoices.map((inv) => inv.id));
+    dueInvoices.forEach((invoice) => {
+      if (invoiceIdsInTimeline.has(invoice.id)) return;
+      invoiceIdsInTimeline.add(invoice.id);
+      const room = getRoom(invoice.roomId);
+      rows.push({
+        key: `due-${invoice.id}`,
+        title: `Room ${room?.label || '-'} rent due`,
+        meta: formatDueWindow(ref, invoice.dueDate),
+        badge: 'DUE',
+        sortDate: invoice.dueDate,
+        onPress: () => openTask({ tab: 'rent', mode: 'ledger' }),
+      });
+    });
+
+    // 6. Scheduled move-outs — one row per tenancy, sorted by moveOutDate
+    moveOutTenancies.forEach((tenancy) => {
+      const room = getRoom(tenancy.roomId);
+      rows.push({
+        key: `moveout-${tenancy.id}`,
+        title: `Room ${room?.label || '-'} moving out`,
+        meta: `On ${formatDate(tenancy.moveOutDate)}`,
+        badge: 'MOVE_OUT_SCHEDULED',
+        sortDate: tenancy.moveOutDate,
+        onPress: () => openTask({ tab: 'rooms', mode: 'moveout' }),
+      });
+    });
+
+    // 7. Upcoming reminders (SCHEDULED or READY, triggerDate >= today), deduped
+    state.reminders
+      .filter(
+        (reminder) =>
+          ['SCHEDULED', 'READY'].includes(reminder.deliveryStatus) &&
+          reminder.triggerDate >= ref &&
+          !invoiceIdsInTimeline.has(reminder.invoiceId),
+      )
+      .forEach((reminder) => {
+        invoiceIdsInTimeline.add(reminder.invoiceId);
+        const invoice = invoices.find((inv) => inv.id === reminder.invoiceId);
+        const room = invoice ? getRoom(invoice.roomId) : null;
+        rows.push({
+          key: `reminder-${reminder.id}`,
+          title: `Reminder: Room ${room?.label || '-'} rent`,
+          meta: `Scheduled for ${formatDate(reminder.triggerDate)}`,
+          badge: 'DUE',
+          sortDate: reminder.triggerDate,
           onPress: () => openTask({ tab: 'rent', mode: 'ledger' }),
-        }
-      : null,
-    moveOutTenancies.length
-      ? {
-          title: `${moveOutTenancies.length} planned move-out${moveOutTenancies.length > 1 ? 's' : ''}`,
-          meta: `Next: Room ${getRoom(moveOutTenancies[0].roomId)?.label || '-'}`,
-          badge: 'MOVE_OUT_SCHEDULED',
-          actionLabel: 'Manage',
-          onPress: () => openTask({ tab: 'rooms', mode: 'moveout' }),
-        }
-      : null,
-  ].filter(Boolean);
+        });
+      });
+
+    // Sort ascending by sortDate (past/today first, then nearest future)
+    rows.sort((a, b) => compareIsoDates(a.sortDate, b.sortDate));
+
+    return rows.slice(0, 8);
+  })();
 
   const refreshAction = useAsyncAction(() => actions.refresh());
 
@@ -1259,25 +1376,41 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                   <StatusBadge label={room.status} />
                 </View>
                 <KeyValueRow label="Resident" value={tenant ? tenant.fullName : 'Available'} />
+                {tenant ? <KeyValueRow label="Phone" value={tenant.phone} /> : null}
                 <KeyValueRow label="Floor" value={room.floor} />
                 <KeyValueRow label="Meter" value={`${meter?.serialNumber || '-'} | ${meter?.lastReading ?? '-'}`} />
                 {tenant ? (
-                  <PrimaryButton
-                    label="Reset password"
-                    tone="secondary"
-                    compact
-                    onPress={() => handleAction(async () => {
-                      const result = await actions.resetTenantPassword(tenant.id);
-                      if (result?.tempPassword) {
-                        setShareDetails({
-                          tempPassword: result.tempPassword,
-                          recipientName: result.tenant?.fullName || tenant.fullName,
-                          recipientPhone: result.tenant?.phone || tenant.phone,
-                          role: 'tenant',
-                        });
-                      }
-                    }, 'Password reset.')}
-                  />
+                  <View style={styles.twoColBtns}>
+                    <View style={{ flex: 1 }}>
+                      <PrimaryButton
+                        label="Edit tenant"
+                        tone="secondary"
+                        compact
+                        onPress={() => {
+                          setTenantEditTarget(tenant);
+                          setTenantEditForm({ fullName: tenant.fullName, phone: tenant.phone?.replace(/^\+91/, '') || '' });
+                        }}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <PrimaryButton
+                        label="Reset password"
+                        tone="secondary"
+                        compact
+                        onPress={() => handleAction(async () => {
+                          const result = await actions.resetTenantPassword(tenant.id);
+                          if (result?.tempPassword) {
+                            setShareDetails({
+                              tempPassword: result.tempPassword,
+                              recipientName: result.tenant?.fullName || tenant.fullName,
+                              recipientPhone: result.tenant?.phone || tenant.phone,
+                              role: 'tenant',
+                            });
+                          }
+                        }, 'Password reset.')}
+                      />
+                    </View>
+                  </View>
                 ) : null}
               </View>
             );
@@ -1371,6 +1504,152 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       );
     }
 
+    if (residentMode === 'addTenant') {
+      const updateAT = (key, value) => setAddTenantForm((c) => ({ ...c, [key]: value }));
+      const STEPS = ['room', 'tenant', 'contract'];
+      const stepIdx = STEPS.indexOf(addTenantStep);
+
+      const goNextStep = () => {
+        if (addTenantStep === 'room') {
+          if (addTenantForm.isNewRoom && !addTenantForm.label.trim()) {
+            toast.show({ tone: 'danger', message: 'Room number is required.' });
+            return;
+          }
+          if (!addTenantForm.isNewRoom && !addTenantForm.existingRoomId) {
+            toast.show({ tone: 'danger', message: 'Select a room.' });
+            return;
+          }
+          setAddTenantStep('tenant');
+        } else if (addTenantStep === 'tenant') {
+          if (!addTenantForm.fullName.trim() || !addTenantForm.phone.trim()) {
+            toast.show({ tone: 'danger', message: 'Name and phone are required.' });
+            return;
+          }
+          setAddTenantStep('contract');
+        } else {
+          handleAction(async () => {
+            let roomId = addTenantForm.existingRoomId;
+            if (addTenantForm.isNewRoom) {
+              await actions.addRoom({
+                label: addTenantForm.label,
+                floor: addTenantForm.floor,
+                serialNumber: addTenantForm.serialNumber,
+                openingReading: addTenantForm.openingReading,
+              });
+              const newRoom = state.rooms.find((r) => r.label === addTenantForm.label);
+              if (newRoom) roomId = newRoom.id;
+            }
+            const inviteResult = await actions.inviteTenant({
+              fullName: addTenantForm.fullName,
+              phone: addTenantForm.phone,
+              roomId,
+            });
+            if (inviteResult?.tempPassword) {
+              setShareDetails({
+                tempPassword: inviteResult.tempPassword,
+                recipientName: inviteResult.invitedTenant?.fullName || addTenantForm.fullName,
+                recipientPhone: inviteResult.invitedTenant?.phone || addTenantForm.phone,
+                role: 'tenant',
+              });
+            }
+            const tenancyId = inviteResult?.invitedTenant
+              ? state.tenancies.find((t) => t.tenantId === inviteResult.invitedTenant.id)?.id
+              : null;
+            if (tenancyId && addTenantForm.moveInDate && addTenantForm.contractStart && addTenantForm.contractEnd) {
+              await actions.activateTenancy({
+                tenancyId,
+                rentAmount: addTenantForm.rentAmount,
+                depositAmount: addTenantForm.depositAmount,
+                dueDay: addTenantForm.dueDay,
+                moveInDate: addTenantForm.moveInDate,
+                contractStart: addTenantForm.contractStart,
+                contractEnd: addTenantForm.contractEnd,
+              });
+            }
+            setAddTenantStep('room');
+            setAddTenantForm({ isNewRoom: true, existingRoomId: '', label: '', floor: '1', serialNumber: '', openingReading: '0', fullName: '', phone: '', rentAmount: '', depositAmount: '', dueDay: '5', moveInDate: '', contractStart: '', contractEnd: '' });
+            setResidentMode('rooms');
+          }, 'Tenant added.');
+        }
+      };
+
+      return (
+        <View style={styles.inlineSection}>
+          <View style={styles.wizardProgress}>
+            {STEPS.map((s, i) => (
+              <View key={s} style={[styles.wizardDot, i <= stepIdx && styles.wizardDotActive]} />
+            ))}
+          </View>
+
+          {addTenantStep === 'room' && (
+            <>
+              <Text style={styles.wizardStepTitle}>Which room?</Text>
+              {vacantRooms.length > 0 && (
+                <ChoiceChips
+                  options={[{ value: 'new', label: 'Create new room' }, ...vacantRooms.map((r) => ({ value: r.id, label: `Room ${r.label}`, meta: `Floor ${r.floor}` }))]}
+                  value={addTenantForm.isNewRoom ? 'new' : addTenantForm.existingRoomId}
+                  onChange={(v) => {
+                    if (v === 'new') { updateAT('isNewRoom', true); updateAT('existingRoomId', ''); }
+                    else { updateAT('isNewRoom', false); updateAT('existingRoomId', v); }
+                  }}
+                />
+              )}
+              {addTenantForm.isNewRoom && (
+                <>
+                  <Field label="Room number" value={addTenantForm.label} onChangeText={(v) => updateAT('label', v)} placeholder="303" returnKeyType="next" />
+                  <Field label="Floor" value={addTenantForm.floor} onChangeText={(v) => updateAT('floor', v)} placeholder="3" keyboardType="numeric" returnKeyType="next" />
+                  <Field label="Meter serial (optional)" value={addTenantForm.serialNumber} onChangeText={(v) => updateAT('serialNumber', v)} placeholder="LT-303-C" returnKeyType="next" />
+                  <Field label="Opening reading" value={addTenantForm.openingReading} onChangeText={(v) => updateAT('openingReading', v)} keyboardType="numeric" returnKeyType="done" />
+                </>
+              )}
+            </>
+          )}
+
+          {addTenantStep === 'tenant' && (
+            <>
+              <Text style={styles.wizardStepTitle}>Tenant details</Text>
+              <Field label="Full name" value={addTenantForm.fullName} onChangeText={(v) => updateAT('fullName', v)} placeholder="Tenant full name" returnKeyType="next" />
+              <Field label="Mobile number" value={addTenantForm.phone} onChangeText={(v) => updateAT('phone', v.replace(/\D+/g, '').slice(0, 10))} placeholder="10-digit number" keyboardType="phone-pad" returnKeyType="done" />
+            </>
+          )}
+
+          {addTenantStep === 'contract' && (
+            <>
+              <Text style={styles.wizardStepTitle}>Lease details</Text>
+              <Field label="Monthly rent (₹)" value={addTenantForm.rentAmount} onChangeText={(v) => updateAT('rentAmount', v)} keyboardType="numeric" placeholder="e.g. 15000" returnKeyType="next" />
+              <Field label="Deposit (₹)" value={addTenantForm.depositAmount} onChangeText={(v) => updateAT('depositAmount', v)} keyboardType="numeric" placeholder="e.g. 30000" returnKeyType="next" />
+              <Field label="Due day of month" value={addTenantForm.dueDay} onChangeText={(v) => updateAT('dueDay', v)} keyboardType="numeric" placeholder="5" returnKeyType="next" />
+              <Field label="Move-in date (YYYY-MM-DD)" value={addTenantForm.moveInDate} onChangeText={(v) => updateAT('moveInDate', v)} placeholder={state.referenceDate} returnKeyType="next" />
+              <Field label="Agreement start (YYYY-MM-DD)" value={addTenantForm.contractStart} onChangeText={(v) => updateAT('contractStart', v)} placeholder={state.referenceDate} returnKeyType="next" />
+              <Field label="Agreement end (YYYY-MM-DD)" value={addTenantForm.contractEnd} onChangeText={(v) => updateAT('contractEnd', v)} placeholder="" returnKeyType="done" />
+              <Text style={styles.wizardHelper}>You can upload agreement images from Advanced → Move-in.</Text>
+            </>
+          )}
+
+          <View style={styles.twoColBtns}>
+            <Pressable
+              onPress={() => {
+                if (addTenantStep === 'room') { setResidentMode('rooms'); }
+                else if (addTenantStep === 'tenant') { setAddTenantStep('room'); }
+                else { setAddTenantStep('tenant'); }
+              }}
+              style={styles.wizardBackBtn}
+            >
+              <Text style={styles.wizardBackBtnText}>{addTenantStep === 'room' ? 'Cancel' : '← Back'}</Text>
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <PrimaryButton
+                label={addTenantStep === 'contract' ? 'Add tenant' : 'Next →'}
+                loading={state.isSyncing}
+                disabled={state.isSyncing}
+                onPress={goNextStep}
+              />
+            </View>
+          </View>
+        </View>
+      );
+    }
+
     return activeTenancies.length ? (
       <>
         <ChoiceChips value={moveOutForm.tenancyId} onChange={(value) => setMoveOutForm((current) => ({ ...current, tenancyId: value }))} options={activeTenancies.map((tenancy) => ({ value: tenancy.id, label: getTenant(tenancy.tenantId)?.fullName || 'Tenant', meta: `Room ${getRoom(tenancy.roomId)?.label}` }))} />
@@ -1408,6 +1687,32 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                     <Text style={styles.ledgerMetaDivider}>·</Text>
                     <Text style={styles.ledgerMetaText}>{invoice.reminderState}</Text>
                   </View>
+                  {['DUE', 'OVERDUE'].includes(invoice.derivedStatus) ? (
+                    markPaidConfirmId === invoice.id ? (
+                      <View style={styles.twoColBtns}>
+                        <View style={{ flex: 1 }}>
+                          <PrimaryButton
+                            label="Confirm paid"
+                            compact
+                            onPress={() => {
+                              setMarkPaidConfirmId(null);
+                              handleAction(() => actions.markInvoicePaid(invoice.id), 'Marked as paid.');
+                            }}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <PrimaryButton label="Cancel" tone="secondary" compact onPress={() => setMarkPaidConfirmId(null)} />
+                        </View>
+                      </View>
+                    ) : (
+                      <PrimaryButton
+                        label="Mark as paid"
+                        tone="secondary"
+                        compact
+                        onPress={() => setMarkPaidConfirmId(invoice.id)}
+                      />
+                    )
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -1451,6 +1756,10 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
                         'Rejected.',
                       )
                     }
+                    onEditReading={meterReading?.status === 'PENDING_REVIEW' ? (reading) => {
+                      setEditReadingTarget(reading);
+                      setEditReadingValue(String(reading.closingReading));
+                    } : null}
                   />
                 );
               })}
@@ -1492,6 +1801,10 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
 
     return <EmptyState title="Room setup is in Rooms" description="Use the Rooms tab." />;
   };
+
+  if (showSettings) {
+    return <SettingsScreen onBack={() => setShowSettings(false)} />;
+  }
 
   if (!state.property) {
     return <OwnerOnboarding state={state} actions={actions} onLogout={onLogout} />;
@@ -1535,63 +1848,69 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               <SetupTourCard steps={setupTourSteps} onOpen={openTourStep} />
             ) : null}
 
-            {ownerQueue.length ? (
-              <SectionCard title="Action queue">
+            {homeTimeline.length ? (
+              <SectionCard title="What's next">
                 <View style={styles.stack}>
-                  {ownerQueue.map((item, index) => (
-                    <AnimatedQueueItem key={item.title} item={item} index={index} />
+                  {homeTimeline.map((item, index) => (
+                    <AnimatedQueueItem key={item.key} item={item} index={index} />
                   ))}
                 </View>
               </SectionCard>
             ) : (
               <SectionCard title="All clear">
-                <EmptyState title="No urgent work" description="Everything is up to date." />
+                <EmptyState title="Nothing scheduled" description="No upcoming dues, move-outs, or reminders." />
               </SectionCard>
             )}
 
-            <SectionCard title="Property info">
-              <KeyValueRow label="Payout UPI" value={upiId} />
-              <KeyValueRow label="Electricity rate" value={`₹${defaultTariff}/unit`} />
-              <KeyValueRow label="Pending approvals" value={String(summary.finalApprovals)} />
-              <KeyValueRow label="Leaving soon" value={String(summary.leavingSoon)} />
-            </SectionCard>
           </>
         ) : null}
 
         {/* ── ROOMS ── */}
         {activeTab === 'rooms' ? (
           <>
-            <SectionCard title="Move-in pipeline">
-              <View style={styles.pipelineWrap}>
-                {moveInPipelineActions.map((action) => (
-                  <AnimatedPipelineStep
-                    key={action.key}
-                    action={action}
-                    isActive={residentMode === action.key}
-                    onPress={action.onPress}
-                  />
-                ))}
-              </View>
-            </SectionCard>
+            {residentMode !== 'addTenant' && (
+              <PrimaryButton
+                label="+ Add tenant"
+                onPress={() => { setResidentMode('addTenant'); setAddTenantStep('room'); }}
+              />
+            )}
 
-            <SectionCard
-              title={residentSectionCopy[residentMode].title}
-              tone={['inventory', 'invite', 'activate'].includes(residentMode) ? 'accent' : 'default'}
-            >
-              <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
-            </SectionCard>
+            {residentMode === 'addTenant' ? (
+              <SectionCard title="Add tenant — guided" tone="accent">
+                <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
+              </SectionCard>
+            ) : (
+              <>
+                <SectionCard title={residentSectionCopy[residentMode].title} tone={['inventory', 'invite', 'activate'].includes(residentMode) ? 'accent' : 'default'}>
+                  <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
+                </SectionCard>
 
-            <SectionCard title="Manage stays">
-              <View style={styles.managementGrid}>
-                {roomManagementActions.map((action) => (
-                  <ManagementActionCard
-                    key={action.key}
-                    action={action}
-                    isActive={residentMode === action.key}
-                  />
-                ))}
-              </View>
-            </SectionCard>
+                <SectionCard title="Advanced">
+                  <View style={styles.pipelineWrap}>
+                    {moveInPipelineActions.map((action) => (
+                      <AnimatedPipelineStep
+                        key={action.key}
+                        action={action}
+                        isActive={residentMode === action.key}
+                        onPress={action.onPress}
+                      />
+                    ))}
+                  </View>
+                </SectionCard>
+
+                <SectionCard title="Manage stays">
+                  <View style={styles.managementGrid}>
+                    {roomManagementActions.map((action) => (
+                      <ManagementActionCard
+                        key={action.key}
+                        action={action}
+                        isActive={residentMode === action.key}
+                      />
+                    ))}
+                  </View>
+                </SectionCard>
+              </>
+            )}
           </>
         ) : null}
 
@@ -1651,6 +1970,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               <KeyValueRow label="Property" value={propertyName} />
               <KeyValueRow label="Manager" value={managerName || '-'} />
               <KeyValueRow label="Phone" value={managerPhone || '-'} />
+              <PrimaryButton label="App settings" tone="secondary" onPress={() => setShowSettings(true)} />
               <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
             </SectionCard>
             <SectionCard title="Settings">
@@ -1670,6 +1990,103 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         role={shareDetails?.role}
         inviterName={state.owner?.name || 'Owner'}
       />
+
+      {/* Tenant edit modal */}
+      <Modal
+        visible={Boolean(tenantEditTarget)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTenantEditTarget(null)}
+      >
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setTenantEditTarget(null)} />
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit tenant</Text>
+              <Pressable onPress={() => setTenantEditTarget(null)} hitSlop={12}>
+                <Text style={styles.modalClose}>×</Text>
+              </Pressable>
+            </View>
+            <Field
+              label="Full name"
+              value={tenantEditForm.fullName}
+              onChangeText={(v) => setTenantEditForm((c) => ({ ...c, fullName: v }))}
+              placeholder="Tenant full name"
+            />
+            <Field
+              label="Phone (digits only)"
+              value={tenantEditForm.phone}
+              onChangeText={(v) => setTenantEditForm((c) => ({ ...c, phone: v.replace(/\D+/g, '').slice(0, 10) }))}
+              placeholder="10-digit mobile number"
+              keyboardType="phone-pad"
+            />
+            <PrimaryButton
+              label="Save changes"
+              loading={state.isSyncing}
+              disabled={state.isSyncing}
+              onPress={async () => {
+                try {
+                  const phone = tenantEditForm.phone ? `+91${tenantEditForm.phone}` : undefined;
+                  await actions.updateTenant(tenantEditTarget.id, {
+                    fullName: tenantEditForm.fullName || undefined,
+                    phone,
+                  });
+                  setTenantEditTarget(null);
+                  toast.show({ tone: 'success', message: 'Tenant details updated.' });
+                } catch (error) {
+                  toast.show({ tone: 'danger', message: error.message });
+                }
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit reading modal */}
+      <Modal
+        visible={Boolean(editReadingTarget)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditReadingTarget(null)}
+      >
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setEditReadingTarget(null)} />
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Correct meter reading</Text>
+              <Pressable onPress={() => setEditReadingTarget(null)} hitSlop={12}>
+                <Text style={styles.modalClose}>×</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.modalHelperText}>
+              Opening reading: {editReadingTarget?.openingReading}
+            </Text>
+            <Field
+              label="Closing reading"
+              value={editReadingValue}
+              onChangeText={setEditReadingValue}
+              placeholder="Enter corrected value"
+              keyboardType="numeric"
+            />
+            <PrimaryButton
+              label="Save correction"
+              loading={state.isSyncing}
+              disabled={state.isSyncing}
+              onPress={async () => {
+                try {
+                  await actions.updateMeterReading(editReadingTarget.id, { reading: editReadingValue });
+                  setEditReadingTarget(null);
+                  toast.show({ tone: 'success', message: 'Reading corrected.' });
+                } catch (error) {
+                  toast.show({ tone: 'danger', message: error.message });
+                }
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
 
       {tourTransition ? (
         <Pressable
@@ -2238,4 +2655,78 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: palette.surface,
   },
+
+  onboardingHero: {
+    backgroundColor: palette.ink,
+    paddingHorizontal: 24,
+    paddingTop: 58,
+    paddingBottom: 28,
+    gap: 6,
+  },
+  onboardingEyebrow: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.9,
+  },
+  onboardingTitle: {
+    color: palette.white,
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  onboardingSubtitle: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+
+  twoColBtns: { flexDirection: 'row', gap: 8 },
+
+  wizardProgress: { flexDirection: 'row', gap: 6, justifyContent: 'center', paddingVertical: 4 },
+  wizardDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.border },
+  wizardDotActive: { backgroundColor: palette.accent, width: 22 },
+  wizardStepTitle: { fontSize: 18, fontWeight: '800', color: palette.ink, marginBottom: 4 },
+  wizardHelper: { fontSize: 12, color: palette.muted, fontStyle: 'italic', marginTop: -8 },
+  wizardBackBtn: { paddingVertical: 12, paddingHorizontal: 6 },
+  wizardBackBtnText: { fontSize: 15, fontWeight: '700', color: palette.muted },
+
+  paymentMetaValueRow: { flexDirection: 'row', alignItems: 'center', flex: 1, flexWrap: 'wrap', gap: 6 },
+  editReadingBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: palette.surfaceTint,
+  },
+  editReadingBtnText: { color: palette.accentDeep, fontSize: 12, fontWeight: '700' },
+
+  modalRoot: { flex: 1, justifyContent: 'flex-end' },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  modalSheet: {
+    backgroundColor: palette.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 14,
+    paddingBottom: 40,
+    gap: 14,
+    ...elevation.e3,
+  },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: palette.border,
+    marginBottom: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: palette.ink },
+  modalClose: { fontSize: 26, color: palette.muted, lineHeight: 30, fontWeight: '400' },
+  modalHelperText: { fontSize: 13, color: palette.muted, fontWeight: '600' },
 });

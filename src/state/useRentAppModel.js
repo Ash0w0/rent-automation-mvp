@@ -28,6 +28,9 @@ const {
   updateProperty,
   updateReminderStatus,
   updateSettlement,
+  updateTenant,
+  updateMeterReading,
+  markInvoicePaid,
 } = require('../lib/apiClient');
 
 const emptySession = {
@@ -237,15 +240,13 @@ useEffect(() => {
       setState((currentState) => ({ ...currentState, isSyncing: true, backendError: null }));
       try {
         await changePassword(currentPassword, newPassword);
-        await logoutSession();
-        setState((currentState) => ({
-          ...currentState,
-          session: emptySession,
-          mustChangePassword: false,
-          isSyncing: false,
-          backendError: null,
-          loginHint: 'Password updated — sign in with your new password.',
-        }));
+        const serverState = await fetchAppState();
+        setState((currentState) =>
+          buildNextState(serverState, currentState, {
+            preserveSession: true,
+            mustChangePassword: false,
+          }),
+        );
       } catch (error) {
         setState((currentState) => ({
           ...currentState,
@@ -447,6 +448,24 @@ useEffect(() => {
 
     closeTenancy(tenancyId) {
       return runServerAction(() => closeTenancy(tenancyId), {
+        preserveSession: true,
+      });
+    },
+
+    updateTenant(tenantId, payload) {
+      return runServerAction(() => updateTenant(tenantId, payload), {
+        preserveSession: true,
+      });
+    },
+
+    updateMeterReading(readingId, payload) {
+      return runServerAction(() => updateMeterReading(readingId, payload), {
+        preserveSession: true,
+      });
+    },
+
+    markInvoicePaid(invoiceId) {
+      return runServerAction(() => markInvoicePaid(invoiceId), {
         preserveSession: true,
       });
     },

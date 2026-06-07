@@ -1,0 +1,72 @@
+{
+  "tabs": {
+    "home": "Home",
+    "rooms": "Rooms",
+    "rent": "Rent",
+    "profile": "Profile",
+    "stay": "Stay",
+    "meter": "Meter",
+    "payments": "Payments"
+  },
+  "auth": {
+    "login": "Log in",
+    "logout": "Log out",
+    "phone": "Mobile number",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "changePassword": "Change password",
+    "updatePassword": "Update password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "loading": "Loading…",
+    "error": "Something went wrong.",
+    "allClear": "All clear",
+    "noData": "Nothing here yet."
+  },
+  "home": {
+    "livingNow": "Living now",
+    "openRooms": "Open rooms",
+    "unpaid": "Unpaid",
+    "approvals": "Approvals",
+    "actionQueue": "Action queue",
+    "noUrgentWork": "No urgent work",
+    "upToDate": "Everything is up to date."
+  },
+  "rooms": {
+    "addTenant": "+ Add tenant",
+    "roomList": "Room list",
+    "advanced": "Advanced",
+    "addRoom": "Add room",
+    "inviteTenant": "Invite tenant",
+    "moveIn": "Move-in",
+    "manageStays": "Manage stays",
+    "moveOut": "Move out",
+    "resetPassword": "Reset password",
+    "editTenant": "Edit tenant"
+  },
+  "rent": {
+    "markAsPaid": "Mark as paid",
+    "confirmPaid": "Confirm paid",
+    "trackDues": "Track dues",
+    "finalApprovals": "Final approvals"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "fontSize": "Font size",
+    "english": "English",
+    "hindi": "हिंदी",
+    "small": "Small",
+    "default": "Default",
+    "large": "Large",
+    "xlarge": "XL"
+  }
+}
