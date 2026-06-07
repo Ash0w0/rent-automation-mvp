@@ -37,6 +37,8 @@ import { useAndroidBackHandler } from '../hooks/useAndroidBackHandler';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { pickImageUpload } from '../lib/imageUploads';
 import { TempPasswordShareModal } from '../components/TempPasswordShareModal';
+import { QuestionWizard } from '../components/QuestionWizard';
+import { SettingsScreen } from './SettingsScreen';
 import { spring as springTokens, haptic, staggerDelay } from '../lib/motion';
 
 const { compareIsoDates, formatCurrency, formatDate, formatMonth, parseIsoDate } = require('../lib/dateUtils');
@@ -655,69 +657,96 @@ function formatDueWindow(referenceDate, dueDate) {
 // ---------------------------------------------------------------------------
 function OwnerOnboarding({ state, actions, onLogout }) {
   const toast = useToast();
-  const [form, setForm] = useState({
-    name: '',
-    address: '',
-    managerName: state.owner?.name || '',
-    managerPhone: state.owner?.phone || state.session?.phone || '',
-    defaultTariff: '8.5',
-    payeeName: state.owner?.name || '',
-    upiId: '',
-    instructions: 'Use room number and month in your UPI note.',
-  });
+  const [isBusy, setIsBusy] = useState(false);
 
-  const updateField = (key, value) => {
-    setForm((current) => ({ ...current, [key]: value }));
-  };
+  const onboardingSteps = [
+    {
+      key: 'name',
+      question: 'What is the name of your property?',
+      helper: 'This will appear on invoices and reminders.',
+      placeholder: 'e.g. Lotus PG',
+      required: true,
+    },
+    {
+      key: 'address',
+      question: 'What is the property address?',
+      placeholder: 'Full street address',
+      multiline: true,
+      required: false,
+    },
+    {
+      key: 'managerName',
+      question: 'Your name (manager / owner)?',
+      placeholder: 'Full name',
+      defaultValue: state.owner?.name || '',
+    },
+    {
+      key: 'managerPhone',
+      question: 'Your contact phone number?',
+      placeholder: 'Mobile number',
+      keyboardType: 'phone-pad',
+      defaultValue: state.owner?.phone || state.session?.phone || '',
+    },
+    {
+      key: 'defaultTariff',
+      question: 'What is your electricity rate per unit (₹)?',
+      helper: 'e.g. 8.5 means ₹8.50 per kWh',
+      placeholder: '8.5',
+      keyboardType: 'decimal-pad',
+      defaultValue: '8.5',
+      validate: (v) => {
+        const n = parseFloat(v);
+        return (isNaN(n) || n <= 0) ? 'Enter a valid electricity rate.' : null;
+      },
+    },
+    {
+      key: 'payeeName',
+      question: 'Who should tenants pay? (payee name)',
+      placeholder: 'Name on UPI account',
+      defaultValue: state.owner?.name || '',
+    },
+    {
+      key: 'upiId',
+      question: 'What is your UPI ID?',
+      helper: 'Tenants will see this on their invoice.',
+      placeholder: 'name@upi',
+      required: false,
+    },
+  ];
 
-  const createPropertyAction = useAsyncAction(async () => {
-    await actions.createProperty({ ...form, defaultTariff: Number(form.defaultTariff) });
-  });
-
-  const submit = async () => {
+  const handleComplete = async (values) => {
+    setIsBusy(true);
     try {
-      await createPropertyAction.run();
+      await actions.createProperty({
+        name: values.name,
+        address: values.address,
+        managerName: values.managerName,
+        managerPhone: values.managerPhone,
+        defaultTariff: Number(values.defaultTariff),
+        payeeName: values.payeeName,
+        upiId: values.upiId,
+        instructions: 'Use room number and month in your UPI note.',
+      });
     } catch (error) {
       toast.show({ tone: 'danger', message: error.message });
+    } finally {
+      setIsBusy(false);
     }
   };
 
   return (
     <View style={styles.screenWrap}>
-      <ScreenSurface
-        hero={
-          <PageHeader
-            eyebrow="Owner setup"
-            title="Create property"
-            subtitle="Start here. The tour will guide the rest."
-          />
-        }
-      >
-        {state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
-
-        <SectionCard title="Property" tone="accent">
-          <Field label="Property name" value={form.name} onChangeText={(value) => updateField('name', value)} placeholder="Lotus PG" />
-          <Field label="Address" value={form.address} onChangeText={(value) => updateField('address', value)} multiline />
-          <Field label="Manager name" value={form.managerName} onChangeText={(value) => updateField('managerName', value)} />
-          <Field label="Manager phone" value={form.managerPhone} onChangeText={(value) => updateField('managerPhone', value)} keyboardType="phone-pad" autoComplete="tel" />
-          <Field label="Electricity rate" value={form.defaultTariff} onChangeText={(value) => updateField('defaultTariff', value)} keyboardType="decimal-pad" />
-          <PrimaryButton label="Create property" onPress={submit} loading={createPropertyAction.isLoading} disabled={createPropertyAction.isLoading} />
-        </SectionCard>
-
-        <SectionCard title="What's next">
-          <View style={styles.tourList}>
-            {['Add rooms', 'Assign tenants', 'Complete move-ins', 'Track rent'].map((label, index) => (
-              <View key={label} style={styles.tourRow}>
-                <View style={styles.tourStepDot}>
-                  <Text style={styles.tourStepDotText}>{index + 1}</Text>
-                </View>
-                <Text style={styles.tourStepTitle}>{label}</Text>
-              </View>
-            ))}
-          </View>
-          <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
-        </SectionCard>
-      </ScreenSurface>
+      <View style={styles.onboardingHero}>
+        <Text style={styles.onboardingEyebrow}>Owner setup</Text>
+        <Text style={styles.onboardingTitle}>Let's set up your property</Text>
+        <Text style={styles.onboardingSubtitle}>Answer 7 quick questions to get started.</Text>
+      </View>
+      <QuestionWizard
+        steps={onboardingSteps}
+        onComplete={handleComplete}
+        onExit={onLogout}
+        isBusy={isBusy}
+      />
     </View>
   );
 }
@@ -727,6 +756,7 @@ function OwnerOnboarding({ state, actions, onLogout }) {
 // ---------------------------------------------------------------------------
 export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [activeTab, setActiveTab] = useState('home');
+  const [showSettings, setShowSettings] = useState(false);
   const [residentMode, setResidentMode] = useState('rooms');
   const [rentMode, setRentMode] = useState('ledger');
   const [profileMode, setProfileMode] = useState('property');
@@ -769,6 +799,14 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
   const [moveOutForm, setMoveOutForm] = useState({ tenancyId: '', moveOutDate: state.referenceDate });
   const [tourTransition, setTourTransition] = useState(null);
   const prevNextKeyRef = useRef(null);
+  const [addTenantStep, setAddTenantStep] = useState('room');
+  const [addTenantForm, setAddTenantForm] = useState({
+    isNewRoom: true, existingRoomId: '',
+    label: '', floor: '1', serialNumber: '', openingReading: '0',
+    fullName: '', phone: '',
+    rentAmount: '', depositAmount: '', dueDay: '5',
+    moveInDate: '', contractStart: '', contractEnd: '',
+  });
   const [tenantEditTarget, setTenantEditTarget] = useState(null);
   const [tenantEditForm, setTenantEditForm] = useState({ fullName: '', phone: '' });
   const [editReadingTarget, setEditReadingTarget] = useState(null);
@@ -1064,6 +1102,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     invite: { title: 'Invite tenant', subtitle: '' },
     activate: { title: 'Move-in', subtitle: '' },
     moveout: { title: 'Move out', subtitle: '' },
+    addTenant: { title: 'Add tenant — guided', subtitle: '' },
   };
 
   const moveInPipelineActions = [
@@ -1399,6 +1438,152 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
       );
     }
 
+    if (residentMode === 'addTenant') {
+      const updateAT = (key, value) => setAddTenantForm((c) => ({ ...c, [key]: value }));
+      const STEPS = ['room', 'tenant', 'contract'];
+      const stepIdx = STEPS.indexOf(addTenantStep);
+
+      const goNextStep = () => {
+        if (addTenantStep === 'room') {
+          if (addTenantForm.isNewRoom && !addTenantForm.label.trim()) {
+            toast.show({ tone: 'danger', message: 'Room number is required.' });
+            return;
+          }
+          if (!addTenantForm.isNewRoom && !addTenantForm.existingRoomId) {
+            toast.show({ tone: 'danger', message: 'Select a room.' });
+            return;
+          }
+          setAddTenantStep('tenant');
+        } else if (addTenantStep === 'tenant') {
+          if (!addTenantForm.fullName.trim() || !addTenantForm.phone.trim()) {
+            toast.show({ tone: 'danger', message: 'Name and phone are required.' });
+            return;
+          }
+          setAddTenantStep('contract');
+        } else {
+          handleAction(async () => {
+            let roomId = addTenantForm.existingRoomId;
+            if (addTenantForm.isNewRoom) {
+              await actions.addRoom({
+                label: addTenantForm.label,
+                floor: addTenantForm.floor,
+                serialNumber: addTenantForm.serialNumber,
+                openingReading: addTenantForm.openingReading,
+              });
+              const newRoom = state.rooms.find((r) => r.label === addTenantForm.label);
+              if (newRoom) roomId = newRoom.id;
+            }
+            const inviteResult = await actions.inviteTenant({
+              fullName: addTenantForm.fullName,
+              phone: addTenantForm.phone,
+              roomId,
+            });
+            if (inviteResult?.tempPassword) {
+              setShareDetails({
+                tempPassword: inviteResult.tempPassword,
+                recipientName: inviteResult.invitedTenant?.fullName || addTenantForm.fullName,
+                recipientPhone: inviteResult.invitedTenant?.phone || addTenantForm.phone,
+                role: 'tenant',
+              });
+            }
+            const tenancyId = inviteResult?.invitedTenant
+              ? state.tenancies.find((t) => t.tenantId === inviteResult.invitedTenant.id)?.id
+              : null;
+            if (tenancyId && addTenantForm.moveInDate && addTenantForm.contractStart && addTenantForm.contractEnd) {
+              await actions.activateTenancy({
+                tenancyId,
+                rentAmount: addTenantForm.rentAmount,
+                depositAmount: addTenantForm.depositAmount,
+                dueDay: addTenantForm.dueDay,
+                moveInDate: addTenantForm.moveInDate,
+                contractStart: addTenantForm.contractStart,
+                contractEnd: addTenantForm.contractEnd,
+              });
+            }
+            setAddTenantStep('room');
+            setAddTenantForm({ isNewRoom: true, existingRoomId: '', label: '', floor: '1', serialNumber: '', openingReading: '0', fullName: '', phone: '', rentAmount: '', depositAmount: '', dueDay: '5', moveInDate: '', contractStart: '', contractEnd: '' });
+            setResidentMode('rooms');
+          }, 'Tenant added.');
+        }
+      };
+
+      return (
+        <View style={styles.inlineSection}>
+          <View style={styles.wizardProgress}>
+            {STEPS.map((s, i) => (
+              <View key={s} style={[styles.wizardDot, i <= stepIdx && styles.wizardDotActive]} />
+            ))}
+          </View>
+
+          {addTenantStep === 'room' && (
+            <>
+              <Text style={styles.wizardStepTitle}>Which room?</Text>
+              {vacantRooms.length > 0 && (
+                <ChoiceChips
+                  options={[{ value: 'new', label: 'Create new room' }, ...vacantRooms.map((r) => ({ value: r.id, label: `Room ${r.label}`, meta: `Floor ${r.floor}` }))]}
+                  value={addTenantForm.isNewRoom ? 'new' : addTenantForm.existingRoomId}
+                  onChange={(v) => {
+                    if (v === 'new') { updateAT('isNewRoom', true); updateAT('existingRoomId', ''); }
+                    else { updateAT('isNewRoom', false); updateAT('existingRoomId', v); }
+                  }}
+                />
+              )}
+              {addTenantForm.isNewRoom && (
+                <>
+                  <Field label="Room number" value={addTenantForm.label} onChangeText={(v) => updateAT('label', v)} placeholder="303" returnKeyType="next" />
+                  <Field label="Floor" value={addTenantForm.floor} onChangeText={(v) => updateAT('floor', v)} placeholder="3" keyboardType="numeric" returnKeyType="next" />
+                  <Field label="Meter serial (optional)" value={addTenantForm.serialNumber} onChangeText={(v) => updateAT('serialNumber', v)} placeholder="LT-303-C" returnKeyType="next" />
+                  <Field label="Opening reading" value={addTenantForm.openingReading} onChangeText={(v) => updateAT('openingReading', v)} keyboardType="numeric" returnKeyType="done" />
+                </>
+              )}
+            </>
+          )}
+
+          {addTenantStep === 'tenant' && (
+            <>
+              <Text style={styles.wizardStepTitle}>Tenant details</Text>
+              <Field label="Full name" value={addTenantForm.fullName} onChangeText={(v) => updateAT('fullName', v)} placeholder="Tenant full name" returnKeyType="next" />
+              <Field label="Mobile number" value={addTenantForm.phone} onChangeText={(v) => updateAT('phone', v.replace(/\D+/g, '').slice(0, 10))} placeholder="10-digit number" keyboardType="phone-pad" returnKeyType="done" />
+            </>
+          )}
+
+          {addTenantStep === 'contract' && (
+            <>
+              <Text style={styles.wizardStepTitle}>Lease details</Text>
+              <Field label="Monthly rent (₹)" value={addTenantForm.rentAmount} onChangeText={(v) => updateAT('rentAmount', v)} keyboardType="numeric" placeholder="e.g. 15000" returnKeyType="next" />
+              <Field label="Deposit (₹)" value={addTenantForm.depositAmount} onChangeText={(v) => updateAT('depositAmount', v)} keyboardType="numeric" placeholder="e.g. 30000" returnKeyType="next" />
+              <Field label="Due day of month" value={addTenantForm.dueDay} onChangeText={(v) => updateAT('dueDay', v)} keyboardType="numeric" placeholder="5" returnKeyType="next" />
+              <Field label="Move-in date (YYYY-MM-DD)" value={addTenantForm.moveInDate} onChangeText={(v) => updateAT('moveInDate', v)} placeholder={state.referenceDate} returnKeyType="next" />
+              <Field label="Agreement start (YYYY-MM-DD)" value={addTenantForm.contractStart} onChangeText={(v) => updateAT('contractStart', v)} placeholder={state.referenceDate} returnKeyType="next" />
+              <Field label="Agreement end (YYYY-MM-DD)" value={addTenantForm.contractEnd} onChangeText={(v) => updateAT('contractEnd', v)} placeholder="" returnKeyType="done" />
+              <Text style={styles.wizardHelper}>You can upload agreement images from Advanced → Move-in.</Text>
+            </>
+          )}
+
+          <View style={styles.twoColBtns}>
+            <Pressable
+              onPress={() => {
+                if (addTenantStep === 'room') { setResidentMode('rooms'); }
+                else if (addTenantStep === 'tenant') { setAddTenantStep('room'); }
+                else { setAddTenantStep('tenant'); }
+              }}
+              style={styles.wizardBackBtn}
+            >
+              <Text style={styles.wizardBackBtnText}>{addTenantStep === 'room' ? 'Cancel' : '← Back'}</Text>
+            </Pressable>
+            <View style={{ flex: 1 }}>
+              <PrimaryButton
+                label={addTenantStep === 'contract' ? 'Add tenant' : 'Next →'}
+                loading={state.isSyncing}
+                disabled={state.isSyncing}
+                onPress={goNextStep}
+              />
+            </View>
+          </View>
+        </View>
+      );
+    }
+
     return activeTenancies.length ? (
       <>
         <ChoiceChips value={moveOutForm.tenancyId} onChange={(value) => setMoveOutForm((current) => ({ ...current, tenancyId: value }))} options={activeTenancies.map((tenancy) => ({ value: tenancy.id, label: getTenant(tenancy.tenantId)?.fullName || 'Tenant', meta: `Room ${getRoom(tenancy.roomId)?.label}` }))} />
@@ -1551,6 +1736,10 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
     return <EmptyState title="Room setup is in Rooms" description="Use the Rooms tab." />;
   };
 
+  if (showSettings) {
+    return <SettingsScreen onBack={() => setShowSettings(false)} />;
+  }
+
   if (!state.property) {
     return <OwnerOnboarding state={state} actions={actions} onLogout={onLogout} />;
   }
@@ -1613,37 +1802,49 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
         {/* ── ROOMS ── */}
         {activeTab === 'rooms' ? (
           <>
-            <SectionCard title="Move-in pipeline">
-              <View style={styles.pipelineWrap}>
-                {moveInPipelineActions.map((action) => (
-                  <AnimatedPipelineStep
-                    key={action.key}
-                    action={action}
-                    isActive={residentMode === action.key}
-                    onPress={action.onPress}
-                  />
-                ))}
-              </View>
-            </SectionCard>
+            {residentMode !== 'addTenant' && (
+              <PrimaryButton
+                label="+ Add tenant"
+                onPress={() => { setResidentMode('addTenant'); setAddTenantStep('room'); }}
+              />
+            )}
 
-            <SectionCard
-              title={residentSectionCopy[residentMode].title}
-              tone={['inventory', 'invite', 'activate'].includes(residentMode) ? 'accent' : 'default'}
-            >
-              <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
-            </SectionCard>
+            {residentMode === 'addTenant' ? (
+              <SectionCard title="Add tenant — guided" tone="accent">
+                <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
+              </SectionCard>
+            ) : (
+              <>
+                <SectionCard title={residentSectionCopy[residentMode].title} tone={['inventory', 'invite', 'activate'].includes(residentMode) ? 'accent' : 'default'}>
+                  <View style={styles.residentPanelBody}>{renderResidentContent()}</View>
+                </SectionCard>
 
-            <SectionCard title="Manage stays">
-              <View style={styles.managementGrid}>
-                {roomManagementActions.map((action) => (
-                  <ManagementActionCard
-                    key={action.key}
-                    action={action}
-                    isActive={residentMode === action.key}
-                  />
-                ))}
-              </View>
-            </SectionCard>
+                <SectionCard title="Advanced">
+                  <View style={styles.pipelineWrap}>
+                    {moveInPipelineActions.map((action) => (
+                      <AnimatedPipelineStep
+                        key={action.key}
+                        action={action}
+                        isActive={residentMode === action.key}
+                        onPress={action.onPress}
+                      />
+                    ))}
+                  </View>
+                </SectionCard>
+
+                <SectionCard title="Manage stays">
+                  <View style={styles.managementGrid}>
+                    {roomManagementActions.map((action) => (
+                      <ManagementActionCard
+                        key={action.key}
+                        action={action}
+                        isActive={residentMode === action.key}
+                      />
+                    ))}
+                  </View>
+                </SectionCard>
+              </>
+            )}
           </>
         ) : null}
 
@@ -1703,6 +1904,7 @@ export function OwnerWorkspaceMobile({ state, actions, onLogout }) {
               <KeyValueRow label="Property" value={propertyName} />
               <KeyValueRow label="Manager" value={managerName || '-'} />
               <KeyValueRow label="Phone" value={managerPhone || '-'} />
+              <PrimaryButton label="App settings" tone="secondary" onPress={() => setShowSettings(true)} />
               <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
             </SectionCard>
             <SectionCard title="Settings">
@@ -2388,7 +2590,41 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
   },
 
+  onboardingHero: {
+    backgroundColor: palette.ink,
+    paddingHorizontal: 24,
+    paddingTop: 58,
+    paddingBottom: 28,
+    gap: 6,
+  },
+  onboardingEyebrow: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.9,
+  },
+  onboardingTitle: {
+    color: palette.white,
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  onboardingSubtitle: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+
   twoColBtns: { flexDirection: 'row', gap: 8 },
+
+  wizardProgress: { flexDirection: 'row', gap: 6, justifyContent: 'center', paddingVertical: 4 },
+  wizardDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.border },
+  wizardDotActive: { backgroundColor: palette.accent, width: 22 },
+  wizardStepTitle: { fontSize: 18, fontWeight: '800', color: palette.ink, marginBottom: 4 },
+  wizardHelper: { fontSize: 12, color: palette.muted, fontStyle: 'italic', marginTop: -8 },
+  wizardBackBtn: { paddingVertical: 12, paddingHorizontal: 6 },
+  wizardBackBtnText: { fontSize: 15, fontWeight: '700', color: palette.muted },
 
   paymentMetaValueRow: { flexDirection: 'row', alignItems: 'center', flex: 1, flexWrap: 'wrap', gap: 6 },
   editReadingBtn: {

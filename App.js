@@ -12,6 +12,8 @@ import { SuperAdminWorkspace } from './src/screens/SuperAdminWorkspace';
 import { TenantWorkspaceMobile } from './src/screens/TenantWorkspaceMobile';
 import { ToastProvider } from './src/components/ToastHost';
 import { useRentAppModel } from './src/state/useRentAppModel';
+import { PreferencesProvider } from './src/state/PreferencesProvider';
+import './src/i18n/index';
 
 class AppErrorBoundary extends React.Component {
   constructor(props) {
@@ -94,6 +96,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AppErrorBoundary>
+        <PreferencesProvider>
         <ToastProvider>
           <SafeAreaView style={styles.safeArea}>
             <StatusBar style="dark" backgroundColor="transparent" translucent />
@@ -126,6 +129,7 @@ export default function App() {
             </View>
           </SafeAreaView>
         </ToastProvider>
+        </PreferencesProvider>
       </AppErrorBoundary>
     </GestureHandlerRootView>
   );

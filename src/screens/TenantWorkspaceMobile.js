@@ -32,6 +32,7 @@ import {
 } from '../components/uiAirbnb';
 import { useToast } from '../components/ToastHost';
 import { useAsyncAction } from '../hooks/useAsyncAction';
+import { SettingsScreen } from './SettingsScreen';
 import { pickImageUpload } from '../lib/imageUploads';
 import {
   formatInvoiceStateLabel,
@@ -295,6 +296,7 @@ function UploadPreview({ title, subtitle, uri }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export function TenantWorkspaceMobile({ state, actions, onLogout }) {
   const [activeTab, setActiveTab] = useState('home');
+  const [showSettings, setShowSettings] = useState(false);
   const [profileMode, setProfileMode] = useState('details');
   const toast = useToast();
 
@@ -440,6 +442,10 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     try { await saveProfileAction.run(); } catch (error) { toast.show({ tone: 'danger', message: error.message }); }
   };
   const handleRefresh = () => { refreshAction.run().catch(() => {}); };
+
+  if (showSettings) {
+    return <SettingsScreen onBack={() => setShowSettings(false)} />;
+  }
 
   if (!tenant) {
     return (
@@ -815,6 +821,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
             <KeyValueRow label="Room" value={room ? `Room ${room.label}` : 'Pending'} />
             <KeyValueRow label="Details" value={tenant.profileStatus === 'COMPLETE' ? 'Complete' : 'Pending'} />
             <KeyValueRow label="Agreement" value={contract ? 'Active' : 'Pending'} />
+            <PrimaryButton label="App settings" tone="secondary" onPress={() => setShowSettings(true)} />
             <PrimaryButton label="Log out" tone="danger" onPress={onLogout} />
           </SectionCard>
           <SectionCard title="Details">

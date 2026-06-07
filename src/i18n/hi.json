@@ -1,0 +1,72 @@
+{
+  "tabs": {
+    "home": "होम",
+    "rooms": "कमरे",
+    "rent": "किराया",
+    "profile": "प्रोफ़ाइल",
+    "stay": "ठहराव",
+    "meter": "मीटर",
+    "payments": "भुगतान"
+  },
+  "auth": {
+    "login": "लॉग इन",
+    "logout": "लॉग आउट",
+    "phone": "मोबाइल नंबर",
+    "password": "पासवर्ड",
+    "forgotPassword": "पासवर्ड भूल गए?",
+    "changePassword": "पासवर्ड बदलें",
+    "updatePassword": "पासवर्ड अपडेट करें",
+    "currentPassword": "वर्तमान पासवर्ड",
+    "newPassword": "नया पासवर्ड",
+    "confirmPassword": "पासवर्ड की पुष्टि करें"
+  },
+  "common": {
+    "save": "सहेजें",
+    "cancel": "रद्द करें",
+    "back": "वापस",
+    "next": "आगे",
+    "finish": "समाप्त",
+    "loading": "लोड हो रहा है…",
+    "error": "कुछ गलत हो गया।",
+    "allClear": "सब ठीक है",
+    "noData": "अभी कुछ नहीं।"
+  },
+  "home": {
+    "livingNow": "अभी रह रहे",
+    "openRooms": "खाली कमरे",
+    "unpaid": "बकाया",
+    "approvals": "अनुमोदन",
+    "actionQueue": "कार्य सूची",
+    "noUrgentWork": "कोई जरूरी काम नहीं",
+    "upToDate": "सब कुछ अपडेट है।"
+  },
+  "rooms": {
+    "addTenant": "+ किरायेदार जोड़ें",
+    "roomList": "कमरों की सूची",
+    "advanced": "उन्नत",
+    "addRoom": "कमरा जोड़ें",
+    "inviteTenant": "किरायेदार आमंत्रित करें",
+    "moveIn": "मूव-इन",
+    "manageStays": "ठहराव प्रबंधित करें",
+    "moveOut": "मूव-आउट",
+    "resetPassword": "पासवर्ड रीसेट",
+    "editTenant": "किरायेदार संपादित करें"
+  },
+  "rent": {
+    "markAsPaid": "भुगतान के रूप में चिह्नित करें",
+    "confirmPaid": "भुगतान की पुष्टि करें",
+    "trackDues": "बकाया ट्रैक करें",
+    "finalApprovals": "अंतिम अनुमोदन"
+  },
+  "settings": {
+    "title": "सेटिंग्स",
+    "language": "भाषा",
+    "fontSize": "फ़ॉन्ट आकार",
+    "english": "English",
+    "hindi": "हिंदी",
+    "small": "छोटा",
+    "default": "डिफ़ॉल्ट",
+    "large": "बड़ा",
+    "xlarge": "बहुत बड़ा"
+  }
+}
