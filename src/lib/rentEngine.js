@@ -287,14 +287,30 @@ function buildContractRecord({ tenancyId, contractInput }) {
     throw new Error('Missing contract field: imageLabels');
   }
 
+  const rentAmount = Number(contractInput.rentAmount);
+  const depositAmount = Number(contractInput.depositAmount);
+  const dueDay = Number(contractInput.dueDay);
+
+  if (!Number.isFinite(rentAmount) || rentAmount <= 0) {
+    throw new Error('Rent amount must be a positive number.');
+  }
+
+  if (!Number.isFinite(depositAmount) || depositAmount < 0) {
+    throw new Error('Deposit amount must be zero or a positive number.');
+  }
+
+  if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+    throw new Error('Due day must be a day of the month (1-31).');
+  }
+
   const contract = {
     id: makeId('contract'),
     tenancyId,
     fileName: contractInput.imageLabels[0],
     imageLabels: contractInput.imageLabels,
-    rentAmount: Number(contractInput.rentAmount),
-    depositAmount: Number(contractInput.depositAmount),
-    dueDay: Number(contractInput.dueDay),
+    rentAmount,
+    depositAmount,
+    dueDay,
     moveInDate: contractInput.moveInDate,
     contractStart: contractInput.contractStart,
     contractEnd: contractInput.contractEnd,

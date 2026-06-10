@@ -215,7 +215,17 @@ function ShimmerOverlay({ active }) {
 // Layout primitives
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ScreenSurface({ children, bottomBar = null, hero = null, refreshControl = null }) {
+export function ScreenSurface({ children, bottomBar = null, hero = null, refreshControl = null, scrollKey = null }) {
+  const scrollRef = useRef(null);
+  const prevScrollKey = useRef(scrollKey);
+
+  useEffect(() => {
+    if (scrollKey !== null && prevScrollKey.current !== scrollKey) {
+      prevScrollKey.current = scrollKey;
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    }
+  }, [scrollKey]);
+
   return (
     <KeyboardAvoidingView
       style={styles.screenShell}
@@ -223,6 +233,7 @@ export function ScreenSurface({ children, bottomBar = null, hero = null, refresh
       keyboardVerticalOffset={80}
     >
       <ScrollView
+        ref={scrollRef}
         style={styles.screen}
         contentContainerStyle={[styles.screenContent, bottomBar && styles.screenContentWithBottomBar]}
         showsVerticalScrollIndicator={false}
@@ -236,6 +247,30 @@ export function ScreenSurface({ children, bottomBar = null, hero = null, refresh
       {bottomBar ? <View style={styles.bottomBarWrap}>{bottomBar}</View> : null}
     </KeyboardAvoidingView>
   );
+}
+
+// Cross-fades + slides content in whenever `transitionKey` changes (tab switches).
+export function TabTransition({ transitionKey, children }) {
+  const opacity = useSharedValue(1);
+  const ty = useSharedValue(0);
+  const prevKey = useRef(transitionKey);
+
+  useEffect(() => {
+    if (prevKey.current !== transitionKey) {
+      prevKey.current = transitionKey;
+      opacity.value = 0;
+      ty.value = 14;
+      opacity.value = withTiming(1, { duration: timingTokens.base });
+      ty.value = withSpring(0, springTokens.gentle);
+    }
+  }, [transitionKey, opacity, ty]);
+
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: ty.value }],
+  }));
+
+  return <Animated.View style={[styles.tabTransition, style]}>{children}</Animated.View>;
 }
 
 export function PageHeader({ eyebrow, title, subtitle, highlights = [], actionLabel, onAction }) {
@@ -823,6 +858,7 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   screenContentWithBottomBar: { paddingBottom: 132 },
+  tabTransition: { gap: 18 },
   bottomBarWrap: {
     position: 'absolute',
     left: 0,

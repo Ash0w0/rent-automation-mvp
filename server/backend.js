@@ -26,7 +26,7 @@ const { createPrismaClient } = require('./prisma');
 const { buildPhoneCandidates, normalizePhoneNumber, tryNormalizePhoneNumber } = require('./phoneUtils');
 const { seedDatabase } = require('./seed');
 const { checkPhoneVerification, startPhoneVerification } = require('./twilioVerify');
-const { generateTempPassword, hashPassword, verifyPassword } = require('./password');
+const { dummyPasswordCompare, generateTempPassword, hashPassword, verifyPassword } = require('./password');
 const { readStoredUploadAsDataUrl, saveImageUpload } = require('./uploads');
 
 const emptySession = {
@@ -225,6 +225,17 @@ async function requireOwnerProperty(prisma, session) {
     await findPropertyForOwnerSession(prisma, session),
     'Create a property first.',
   );
+}
+
+// Guard against cross-owner access: the record must carry the caller's propertyId.
+function requirePropertyRecord(record, ownerProperty, message) {
+  const resolved = requireRecord(record, message);
+
+  if (resolved.propertyId !== ownerProperty.id) {
+    throw new Error(message);
+  }
+
+  return resolved;
 }
 
 function cleanText(value) {
@@ -454,6 +465,25 @@ async function recordAudit(prisma, title, detail, referenceDate = getTodayIso())
   });
 }
 
+// Strip credential fields before records leave the API.
+function sanitizeTenant(tenant) {
+  if (!tenant) {
+    return tenant;
+  }
+
+  const { passwordHash, mustChangePassword, invitedAt, invitedByOwnerId, ...safe } = tenant;
+  return safe;
+}
+
+function sanitizeOwner(owner) {
+  if (!owner) {
+    return owner;
+  }
+
+  const { passwordHash, mustChangePassword, invitedAt, invitedBySuperAdminId, ...safe } = owner;
+  return safe;
+}
+
 async function getState(prisma, session = null) {
   const referenceDate = getTodayIso();
   const resolvedSession = session || emptySession;
@@ -595,7 +625,7 @@ async function getState(prisma, session = null) {
       settlementAccount,
       rooms,
       roomMeters,
-      tenants: tenant ? [tenant] : [],
+      tenants: tenant ? [sanitizeTenant(tenant)] : [],
       tenancies,
       contracts: applyInlineContractImages(contracts),
       invoices,
@@ -618,7 +648,7 @@ async function getState(prisma, session = null) {
     return {
       referenceDate,
       session: resolvedSession,
-      owner,
+      owner: sanitizeOwner(owner),
       property: null,
       settlementAccount: null,
       rooms: [],
@@ -696,12 +726,12 @@ async function getState(prisma, session = null) {
   return {
     referenceDate,
     session: resolvedSession,
-    owner,
+    owner: sanitizeOwner(owner),
     property,
     settlementAccount,
     rooms,
     roomMeters,
-    tenants,
+    tenants: tenants.map(sanitizeTenant),
     tenancies,
     contracts: applyInlineContractImages(contracts),
     invoices,
@@ -763,6 +793,7 @@ function createRentBackend(options = {}) {
 
         if (payload.role === 'super_admin') {
           return {
+            id: session.id,
             role: 'super_admin',
             phone: payload.phone,
             currentTenantId: null,
@@ -773,6 +804,7 @@ function createRentBackend(options = {}) {
 
         return payload.role === 'owner'
           ? {
+              id: session.id,
               role: 'owner',
               phone: payload.phone,
               currentTenantId: null,
@@ -780,6 +812,7 @@ function createRentBackend(options = {}) {
               currentSuperAdminId: null,
             }
           : {
+              id: session.id,
               role: 'tenant',
               phone: payload.phone,
               currentTenantId: payload.tenantId || session.tenantId || null,
@@ -906,16 +939,24 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('Phone and password are required.');
         }
 
-        const identity = await findAuthIdentity(prisma, role || 'auto', phone);
+        // One generic failure message for unknown phone, missing password, and
+        // wrong password — distinct errors let attackers enumerate accounts.
+        let identity = null;
+        try {
+          identity = await findAuthIdentity(prisma, role || 'auto', phone);
+        } catch (_error) {
+          identity = null;
+        }
 
-        const rateKey = buildOtpRateKey(`pwd:${identity.role}`, phone, requestMeta.ipAddress);
+        const rateKey = buildOtpRateKey(`pwd:${identity?.role || role || 'auto'}`, phone, requestMeta.ipAddress);
         takeRateLimitedSlot(otpVerifyTracker, rateKey, {
           windowMs: OTP_VERIFY_WINDOW_MS,
           maxAttempts: OTP_VERIFY_MAX_ATTEMPTS,
         });
 
-        if (!identity.passwordHash) {
-          throw new Error('Password login is not yet set up for this account.');
+        if (!identity || !identity.passwordHash) {
+          await dummyPasswordCompare(password);
+          throw new Error('Incorrect phone or password.');
         }
 
         const ok = await verifyPassword(password, identity.passwordHash);
@@ -1328,10 +1369,16 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           return { ok: true };
         }
 
-        const payload = verifyToken(refreshToken);
+        // Logout is idempotent — an expired or malformed token still succeeds.
+        let payload;
+        try {
+          payload = verifyToken(refreshToken);
+        } catch (_error) {
+          return { ok: true };
+        }
 
         if (payload.typ !== 'refresh') {
-          throw new Error('Invalid refresh token.');
+          return { ok: true };
         }
 
         const session = await prisma.authSession.findUnique({
@@ -1653,9 +1700,16 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async updateTenantDetails(tenantId, input, session) {
       return run(async () => {
-        requireOwnerSession(session);
+        const ownerProperty = await requireOwnerProperty(prisma, session);
         const tenant = requireRecord(
           await prisma.tenant.findUnique({ where: { id: tenantId } }),
+          'Tenant not found.',
+        );
+        requireRecord(
+          await prisma.tenancy.findFirst({
+            where: { tenantId, propertyId: ownerProperty.id },
+            select: { id: true },
+          }),
           'Tenant not found.',
         );
 
@@ -1696,9 +1750,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async updateMeterReading(readingId, input, session) {
       return run(async () => {
-        requireOwnerSession(session);
-        const reading = requireRecord(
+        const ownerProperty = await requireOwnerProperty(prisma, session);
+        const reading = requirePropertyRecord(
           await prisma.meterReading.findUnique({ where: { id: readingId } }),
+          ownerProperty,
           'Meter reading not found.',
         );
 
@@ -1726,9 +1781,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async markInvoicePaid(invoiceId, session) {
       return run(async () => {
-        requireOwnerSession(session);
-        const invoice = requireRecord(
+        const ownerProperty = await requireOwnerProperty(prisma, session);
+        const invoice = requirePropertyRecord(
           await prisma.invoice.findUnique({ where: { id: invoiceId } }),
+          ownerProperty,
           'Invoice not found.',
         );
 
@@ -1772,9 +1828,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async activateTenancy(tenancyId, contractInput, session) {
       return run(async () => {
-        requireOwnerSession(session);
-        const tenancy = requireRecord(
+        const ownerProperty = await requireOwnerProperty(prisma, session);
+        const tenancy = requirePropertyRecord(
           await prisma.tenancy.findUnique({ where: { id: tenancyId } }),
+          ownerProperty,
           'Tenancy not found.',
         );
 
@@ -2244,7 +2301,7 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async reviewPayment(input, session) {
       return run(async () => {
-        requireOwnerSession(session);
+        const ownerProperty = await requireOwnerProperty(prisma, session);
         const submission = requireRecord(
           await prisma.paymentSubmission.findUnique({ where: { id: input.submissionId } }),
           'Pick a payment submission that is still waiting for review.',
@@ -2254,8 +2311,9 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
           throw new Error('Pick a payment submission that is still waiting for review.');
         }
 
-        const invoice = requireRecord(
+        const invoice = requirePropertyRecord(
           await prisma.invoice.findUnique({ where: { id: submission.invoiceId } }),
+          ownerProperty,
           'Invoice not found.',
         );
         const meterReading = await prisma.meterReading.findFirst({
@@ -2337,9 +2395,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async updateReminderStatus(reminderId, deliveryStatus, session) {
       return run(async () => {
-        requireOwnerSession(session);
-        const reminder = requireRecord(
+        const ownerProperty = await requireOwnerProperty(prisma, session);
+        const reminder = requirePropertyRecord(
           await prisma.reminder.findUnique({ where: { id: reminderId } }),
+          ownerProperty,
           'Reminder not found.',
         );
 
@@ -2357,9 +2416,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async scheduleMoveOut(tenancyId, moveOutDate, session) {
       return run(async () => {
-        requireOwnerSession(session);
-        const tenancy = requireRecord(
+        const ownerProperty = await requireOwnerProperty(prisma, session);
+        const tenancy = requirePropertyRecord(
           await prisma.tenancy.findUnique({ where: { id: tenancyId } }),
+          ownerProperty,
           'Tenancy not found.',
         );
 
@@ -2396,9 +2456,10 @@ async verifyOtp({ role, phone, code }, requestMeta = {}) {
 
     async closeTenancy(tenancyId, session) {
       return run(async () => {
-        requireOwnerSession(session);
-        const tenancy = requireRecord(
+        const ownerProperty = await requireOwnerProperty(prisma, session);
+        const tenancy = requirePropertyRecord(
           await prisma.tenancy.findUnique({ where: { id: tenancyId } }),
+          ownerProperty,
           'Tenancy not found.',
         );
 

@@ -17,6 +17,11 @@ function isAllowedOrigin(origin) {
     return true;
   }
 
+  // Localhost origins are only trusted outside production.
+  if (process.env.NODE_ENV === 'production') {
+    return false;
+  }
+
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
 }
 
@@ -35,6 +40,15 @@ function createApp(backend) {
       },
     }),
   );
+  app.use((request, response, next) => {
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('X-Frame-Options', 'DENY');
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    if (request.secure || request.headers['x-forwarded-proto'] === 'https') {
+      response.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
   app.use(express.json({ limit: '15mb' }));
 
   app.get('/health', (_request, response) => {
@@ -293,7 +307,6 @@ function createApp(backend) {
   app.use((request, response) => {
     response.status(404).json({
       error: 'Route not found.',
-      path: request.path,
     });
   });
 
@@ -303,10 +316,14 @@ function createApp(backend) {
       return;
     }
 
-    const statusCode = isClientError(error) ? 400 : 500;
-    response.status(statusCode).json({
-      error: error.message || 'Unexpected server error.',
-    });
+    if (isClientError(error)) {
+      response.status(400).json({ error: error.message });
+      return;
+    }
+
+    // Log internals server-side only; clients get a generic message.
+    console.error('Unhandled server error:', error);
+    response.status(500).json({ error: 'Unexpected server error.' });
   });
 
   return app;

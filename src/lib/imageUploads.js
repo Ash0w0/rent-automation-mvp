@@ -1,8 +1,23 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 
+// Mirrors the server's 8 MB cap — fail fast before base64-inflating in memory.
+const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+
 function getMimeType(asset) {
   return asset?.mimeType || 'image/jpeg';
+}
+
+function assertUploadAllowed(asset) {
+  const mimeType = getMimeType(asset);
+  if (!ALLOWED_MIME_TYPES.includes(mimeType.toLowerCase())) {
+    throw new Error('Please choose a photo (JPG, PNG, WebP, or HEIC).');
+  }
+
+  if (typeof asset?.fileSize === 'number' && asset.fileSize > MAX_UPLOAD_BYTES) {
+    throw new Error('That image is too large. Please pick one under 6 MB.');
+  }
 }
 
 function getFileName(asset) {
@@ -64,6 +79,8 @@ export async function pickImageUpload() {
   if (!asset) {
     return null;
   }
+
+  assertUploadAllowed(asset);
 
   return {
     fileName: getFileName(asset),
