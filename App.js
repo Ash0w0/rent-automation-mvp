@@ -1,11 +1,12 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, Animated, Easing, SafeAreaView, StyleSheet, View, Text } from 'react-native';
+import { Animated, Easing, SafeAreaView, StyleSheet, View, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AuthScreen } from './src/screens/AuthScreen';
 import { Banner, palette } from './src/components/uiAirbnb';
+import { SkeletonBoot } from './src/components/SkeletonBoot';
 import { ChangePasswordScreen } from './src/screens/ChangePasswordScreen';
 import { OwnerWorkspaceMobile } from './src/screens/OwnerWorkspaceMobile';
 import { SuperAdminWorkspace } from './src/screens/SuperAdminWorkspace';
@@ -86,9 +87,7 @@ export default function App() {
   if (!state || state.isHydrating) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={palette.ink} />
-        </View>
+        <SkeletonBoot />
       </SafeAreaView>
     );
   }
@@ -148,11 +147,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 20,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   syncBar: {
     position: 'absolute',

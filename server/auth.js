@@ -2,7 +2,9 @@ const crypto = require('node:crypto');
 
 const jwt = require('jsonwebtoken');
 
-const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 24;
+// Short-lived: the client refreshes transparently on 401, and a stolen access
+// token stays usable for at most an hour.
+const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
 const SESSION_MAX_DAYS = 90;
 

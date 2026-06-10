@@ -27,6 +27,7 @@ import {
   SectionCard,
   StatusBadge,
   TabStrip,
+  TabTransition,
   elevation,
   palette,
 } from '../components/uiAirbnb';
@@ -570,6 +571,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     <ScreenSurface
       hero={<PageHeader eyebrow={heroCopy.eyebrow} title={heroCopy.title} subtitle={heroCopy.subtitle} highlights={heroCopy.highlights} />}
       bottomBar={<TabStrip tabs={tenantTabs} activeTab={activeTab} onChange={setActiveTab} />}
+      scrollKey={activeTab}
       refreshControl={
         <RefreshControl
           refreshing={refreshAction.isLoading}
@@ -581,6 +583,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
     >
       {state.backendError ? <Banner tone="danger" message={state.backendError} /> : null}
 
+      <TabTransition transitionKey={activeTab}>
       {activeTab === 'home' ? (
         <>
           {!showAllClearOnHome ? (
@@ -896,6 +899,7 @@ export function TenantWorkspaceMobile({ state, actions, onLogout }) {
           </SectionCard>
         </>
       ) : null}
+      </TabTransition>
     </ScreenSurface>
   );
 }

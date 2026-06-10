@@ -197,15 +197,6 @@ function createSeedState() {
 
   const reminders = [];
 
-  const seedPasswords = {
-    superAdmin: 'changeme',
-    owner: 'changeme',
-    tenants: {
-      'tenant-1': 'changeme',
-      'tenant-2': 'changeme',
-    },
-  };
-
   return {
     referenceDate: today,
     session: {
@@ -216,7 +207,6 @@ function createSeedState() {
       currentSuperAdminId: null,
     },
     superAdmin,
-    seedPasswords,
     owner,
     property,
     settlementAccount,

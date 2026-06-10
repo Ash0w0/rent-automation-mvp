@@ -1,5 +1,43 @@
 const { createSeedState } = require('../src/data/seed');
-const { hashPassword } = require('./password');
+const { generateTempPassword, hashPassword } = require('./password');
+
+// Demo credentials live server-side only — never bundled into the client app.
+const DEV_DEFAULT_PASSWORD = 'changeme';
+
+function isProduction() {
+  return process.env.NODE_ENV === 'production';
+}
+
+// Demo rooms/tenants/invoices are seeded in development by default, and in
+// production only when explicitly requested via SEED_DEMO_DATA=true.
+function isDemoSeedEnabled() {
+  if (process.env.SEED_DEMO_DATA === 'true') {
+    return true;
+  }
+  if (process.env.SEED_DEMO_DATA === 'false') {
+    return false;
+  }
+  return !isProduction();
+}
+
+function resolveSuperAdminPassword() {
+  if (process.env.SUPER_ADMIN_PASSWORD) {
+    return process.env.SUPER_ADMIN_PASSWORD;
+  }
+
+  if (!isProduction()) {
+    return DEV_DEFAULT_PASSWORD;
+  }
+
+  // Never bootstrap production with a well-known default. Generate a one-time
+  // password and surface it in the deploy logs instead.
+  const generated = generateTempPassword(14);
+  console.warn(
+    `[seed] SUPER_ADMIN_PASSWORD is not set — generated a one-time super admin password: ${generated}`,
+  );
+  console.warn('[seed] Log in with it and change it immediately, or set SUPER_ADMIN_PASSWORD before first deploy.');
+  return generated;
+}
 
 async function seedDatabase(prisma) {
   const existingOwner = await prisma.owner.findFirst({
@@ -11,7 +49,7 @@ async function seedDatabase(prisma) {
   if (existingOwner) {
     if (!existingSuperAdmin) {
       const seed = createSeedState();
-      const superAdminHash = await hashPassword(seed.seedPasswords.superAdmin);
+      const superAdminHash = await hashPassword(resolveSuperAdminPassword());
       await prisma.superAdmin.create({
         data: {
           ...seed.superAdmin,
@@ -27,13 +65,27 @@ async function seedDatabase(prisma) {
     return;
   }
 
+  if (!isDemoSeedEnabled()) {
+    // Production bootstrap: create only the super admin, no demo data.
+    const seed = createSeedState();
+    const superAdminHash = await hashPassword(resolveSuperAdminPassword());
+    await prisma.superAdmin.create({
+      data: {
+        ...seed.superAdmin,
+        passwordHash: superAdminHash,
+        mustChangePassword: true,
+      },
+    });
+    return;
+  }
+
   const seed = createSeedState();
 
   const [superAdminHash, ownerHash, tenant1Hash, tenant2Hash] = await Promise.all([
-    hashPassword(seed.seedPasswords.superAdmin),
-    hashPassword(seed.seedPasswords.owner),
-    hashPassword(seed.seedPasswords.tenants['tenant-1']),
-    hashPassword(seed.seedPasswords.tenants['tenant-2']),
+    hashPassword(resolveSuperAdminPassword()),
+    hashPassword(DEV_DEFAULT_PASSWORD),
+    hashPassword(DEV_DEFAULT_PASSWORD),
+    hashPassword(DEV_DEFAULT_PASSWORD),
   ]);
 
   const tenantsWithPasswords = seed.tenants.map((tenant) => ({
